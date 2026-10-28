@@ -56,3 +56,10 @@ describe("suggestCashAmounts", () => {
     expect(suggestCashAmounts(pesos(1000))).toEqual([pesos(1000), pesos(2000), pesos(10000), pesos(20000)]);
   });
 });
+
+describe("cobros integrados", () => {
+  it("conserva de qué cobro de Mercado Pago viene el pago", () => {
+    const r = settle(pesos(1000), [{ method: "mercadopago", amount: pesos(1000), reference: "PAY01", provider: "mp_qr", chargeId: "c1" }]);
+    expect(r.ok && r.payments).toEqual([{ method: "mercadopago", amount: pesos(1000), reference: "PAY01", provider: "mp_qr", chargeId: "c1" }]);
+  });
+});

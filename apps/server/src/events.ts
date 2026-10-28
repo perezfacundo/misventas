@@ -1,5 +1,5 @@
-/** Avisa en tiempo real a los otros dispositivos del comercio que hay cambios para bajar. */
-type Listener = { deviceId: string; send: (seq: number) => void };
+/** Avisa en tiempo real a los dispositivos de un comercio: hay cambios para bajar, o se confirmó un pago. */
+type Listener = { deviceId: string; send: (event: string, data: unknown) => void };
 
 export class SyncHub {
   private listeners = new Map<string, Set<Listener>>();
@@ -14,9 +14,14 @@ export class SyncHub {
     };
   }
 
+  /** "Hay cambios": a todos menos al que los subió. */
   publish(tenantId: string, fromDeviceId: string, seq: number): void {
+    this.emit(tenantId, "changed", { seq }, fromDeviceId);
+  }
+
+  emit(tenantId: string, event: string, data: unknown, exceptDeviceId?: string): void {
     for (const l of this.listeners.get(tenantId) ?? []) {
-      if (l.deviceId !== fromDeviceId) l.send(seq);
+      if (l.deviceId !== exceptDeviceId) l.send(event, data);
     }
   }
 }

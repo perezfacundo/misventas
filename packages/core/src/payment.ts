@@ -19,12 +19,20 @@ export interface Payment {
   tendered?: Cents;
   /** Número de operación o comprobante del posnet/transferencia. */
   reference?: string;
+  /** Cobro integrado con Mercado Pago (si no, el pago se registró a mano). */
+  provider?: PaymentProvider;
+  /** Id del cobro en el servidor, para rastrearlo. */
+  chargeId?: string;
 }
+
+export type PaymentProvider = "mp_qr" | "mp_point";
 
 export interface TenderInput {
   method: PaymentMethod;
   amount: Cents;
   reference?: string;
+  provider?: PaymentProvider;
+  chargeId?: string;
 }
 
 export type SettleResult =
@@ -48,7 +56,12 @@ export function settle(total: Cents, tenders: readonly TenderInput[]): SettleRes
   const change = remaining < 0 ? -remaining : 0;
   const payments: Payment[] = valid
     .filter((t) => t.method !== "efectivo")
-    .map((t) => ({ method: t.method, amount: t.amount, reference: t.reference || undefined }));
+    .map((t) => ({
+      method: t.method,
+      amount: t.amount,
+      reference: t.reference || undefined,
+      ...(t.provider ? { provider: t.provider, chargeId: t.chargeId } : {}),
+    }));
   if (cash > 0) {
     payments.unshift({ method: "efectivo", amount: cash - change, tendered: cash });
   }

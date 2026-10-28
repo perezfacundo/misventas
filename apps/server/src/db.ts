@@ -75,6 +75,35 @@ const MIGRATIONS: string[] = [
   );
   CREATE INDEX entities_tenant_seq ON entities (tenant_id, seq);
   `,
+  `
+  CREATE TABLE mp_accounts (
+    tenant_id uuid PRIMARY KEY REFERENCES tenants(id),
+    access_token_enc text NOT NULL,
+    mp_user_id text NOT NULL,
+    nickname text,
+    external_pos_id text,
+    terminal_id text,
+    webhook_secret_enc text,
+    updated_at timestamptz NOT NULL DEFAULT now()
+  );
+  CREATE TABLE mp_charges (
+    id uuid PRIMARY KEY,
+    tenant_id uuid NOT NULL REFERENCES tenants(id),
+    device_id uuid NOT NULL,
+    kind text NOT NULL,
+    amount bigint NOT NULL,
+    mp_order_id text NOT NULL,
+    mp_status text NOT NULL,
+    status text NOT NULL,
+    status_detail text,
+    payment_id text,
+    qr_data text,
+    created_at timestamptz NOT NULL DEFAULT now(),
+    updated_at timestamptz NOT NULL DEFAULT now()
+  );
+  CREATE INDEX mp_charges_order ON mp_charges (lower(mp_order_id));
+  CREATE INDEX mp_charges_tenant ON mp_charges (tenant_id, created_at);
+  `,
 ];
 
 async function migrate(db: Db): Promise<void> {

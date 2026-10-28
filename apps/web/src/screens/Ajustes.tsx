@@ -9,13 +9,15 @@ import { recomputeAllStock } from "../data/products";
 import { downloadFile } from "../data/csv";
 import { createUser, updateUser, useUsers } from "../data/users";
 import {
-  ApiError, getCloudLink, listDevices, loginAccount, registerAccount, revokeDevice, syncNow, unlink, useSyncStatus,
+  ApiError, getCloudLink, listDevices, loginAccount, registerAccount, revokeDevice, serverConfigured, syncNow, unlink, useSyncStatus,
   type LinkedDevice,
 } from "../sync/engine";
 import { isValidPin } from "../lib/pin";
 import { formatDate, formatDateTime, formatTime } from "../lib/format";
 import { Button, Card, Field, Modal, PageHeader, Segmented, TextInput, Toggle, useToast } from "../components/ui";
 import { useSession } from "../components/Session";
+import { MercadoPagoSettings } from "../components/MercadoPagoSettings";
+import { PrinterSettings } from "../components/PrinterSettings";
 
 const ALL_METHODS: PaymentMethod[] = ["efectivo", "debito", "credito", "transferencia", "mercadopago", "fiado"];
 
@@ -45,6 +47,7 @@ export function Ajustes({ settings }: { settings: Settings }) {
         </Card>
 
         {can("ajustes") && <CloudCard />}
+        {can("ajustes") && <MercadoPagoSettings />}
         {can("usuarios") && <UsersCard />}
 
         {can("ajustes") && (
@@ -68,7 +71,7 @@ export function Ajustes({ settings }: { settings: Settings }) {
                     key={m}
                     label={PAYMENT_LABELS[m]}
                     hint={
-                      m === "mercadopago" ? "Por ahora se registra a mano. La integración con QR y Point llega en una próxima versión."
+                      m === "mercadopago" ? "Con Mercado Pago conectado (más arriba) se cobra con QR o Point; si no, se registra a mano."
                         : m === "fiado" ? "Anota la compra en la cuenta del cliente." : undefined
                     }
                     checked={settings.enabledMethods.includes(m)}
@@ -89,6 +92,7 @@ export function Ajustes({ settings }: { settings: Settings }) {
                   <Segmented label="Ancho del papel" value={settings.paperWidth} onChange={(paperWidth) => save({ paperWidth })}
                     options={[{ value: 58, label: "58 mm" }, { value: 80, label: "80 mm" }]} />
                 </Field>
+                <PrinterSettings settings={settings} />
                 <Field label="Redondeo al actualizar precios" group>
                   <Segmented label="Redondeo" value={settings.priceRounding} onChange={(priceRounding) => save({ priceRounding })}
                     options={[{ value: 0, label: "Sin redondeo" }, { value: pesos(10), label: "$10" }, { value: pesos(50), label: "$50" }, { value: pesos(100), label: "$100" }]} />
@@ -165,7 +169,16 @@ function CloudCard() {
   };
   useEffect(() => {
     if (cloud) void loadDevices();
-  }, [cloud]);
+  }, [cloud, sync.lastSyncAt]);
+
+  if (!cloud && !serverConfigured()) {
+    return (
+      <Card>
+        <h2 className="mb-1 flex items-center gap-2 text-xl font-bold"><Cloud className="size-6 text-brand" /> Usar en varios dispositivos</h2>
+        <p className="text-muted">Esta copia de la app de escritorio se armó sin la dirección del servidor, así que funciona sola en este equipo. Para sincronizar, hay que instalar una versión armada con la dirección de tu servidor.</p>
+      </Card>
+    );
+  }
 
   if (!cloud) {
     return (

@@ -11,14 +11,15 @@ let handle: DbHandle;
 let app: Awaited<ReturnType<typeof buildApp>>;
 
 // Un PGlite en memoria por archivo (abrirlo tarda); entre tests se vacían las tablas.
+// Con TEST_DATABASE_URL corren contra un PostgreSQL real (el driver de producción).
 beforeAll(async () => {
-  handle = await openDb();
+  handle = await openDb({ url: process.env.TEST_DATABASE_URL });
 });
 afterAll(async () => {
   await handle.close();
 });
 beforeEach(async () => {
-  await handle.db.execute(sql`TRUNCATE entities, devices, accounts, tenants`);
+  await handle.db.execute(sql`TRUNCATE mp_charges, mp_accounts, entities, devices, accounts, tenants`);
   app = await buildApp({ db: handle.db, rateLimit: false });
 });
 afterEach(async () => {

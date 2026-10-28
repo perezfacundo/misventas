@@ -17,6 +17,7 @@ const DEFAULT_DEVICE: DeviceSettings = {
   theme: "auto",
   autoPrint: false,
   paperWidth: 58,
+  printer: { mode: "navegador", name: "", host: "", openDrawer: false },
   onboarded: false,
 };
 

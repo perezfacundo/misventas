@@ -25,6 +25,12 @@ export interface SyncStatus {
 
 const API = (import.meta.env.VITE_API_URL as string | undefined) ?? "";
 
+/**
+ * En el navegador la API está en el mismo origen (/api). La app de escritorio no tiene servidor propio:
+ * necesita VITE_API_URL al compilarla para poder sincronizar.
+ */
+export const serverConfigured = (): boolean => API !== "" || !("__TAURI_INTERNALS__" in window);
+
 export class ApiError extends Error {
   readonly status: number;
   readonly code: string;
@@ -35,7 +41,7 @@ export class ApiError extends Error {
   }
 }
 
-async function api<T>(path: string, init: RequestInit = {}, token?: string): Promise<T> {
+export async function api<T>(path: string, init: RequestInit = {}, token?: string): Promise<T> {
   let res: Response;
   try {
     res = await fetch(`${API}${path}`, {
@@ -298,7 +304,13 @@ function connectEvents(cloud: CloudLink): void {
   if (typeof EventSource === "undefined") return;
   events = new EventSource(`${API}/api/sync/events?token=${encodeURIComponent(cloud.token)}`);
   events.addEventListener("changed", () => void syncNow());
+  // Confirmaciones de Mercado Pago: la pantalla de cobro escucha este evento.
+  events.addEventListener("payment", (e) => {
+    window.dispatchEvent(new CustomEvent(PAYMENT_EVENT, { detail: JSON.parse((e as MessageEvent<string>).data) }));
+  });
 }
+
+export const PAYMENT_EVENT = "misventas:pago";
 
 let debounce: ReturnType<typeof setTimeout> | undefined;
 let started = false;

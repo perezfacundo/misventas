@@ -1,0 +1,47 @@
+# Producción en un servidor propio (VPS): PostgreSQL + Mis Ventas + Caddy (HTTPS automático con Let's Encrypt).
+# Uso: copiá .env.example a .env, completalo y corré `docker compose up -d --build`.
+services:
+  db:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: misventas
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Falta POSTGRES_PASSWORD en .env}
+      POSTGRES_DB: misventas
+    volumes:
+      - db:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U misventas"]
+      interval: 5s
+      retries: 10
+
+  app:
+    build: .
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: postgres://misventas:${POSTGRES_PASSWORD}@db:5432/misventas
+      APP_SECRET: ${APP_SECRET:?Falta APP_SECRET en .env}
+      PUBLIC_URL: https://${DOMAIN:-localhost}
+    depends_on:
+      db:
+        condition: service_healthy
+    # Solo para diagnóstico desde el propio servidor; desde afuera se entra por Caddy.
+    ports:
+      - "127.0.0.1:${APP_PORT:-3000}:3000"
+
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    profiles: ["https"]
+    command: caddy reverse-proxy --from ${DOMAIN:-localhost} --to app:3000
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - caddy:/data
+    depends_on:
+      - app
+
+volumes:
+  db:
+  caddy:

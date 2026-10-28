@@ -45,4 +45,34 @@ export const entities = pgTable(
   (t) => [primaryKey({ columns: [t.tenantId, t.tbl, t.id] }), index("entities_tenant_seq").on(t.tenantId, t.seq)],
 );
 
-export const schema = { tenants, accounts, devices, entities };
+
+/** Cuenta de Mercado Pago de cada comercio. El token se guarda cifrado (ver secrets.ts). */
+export const mpAccounts = pgTable("mp_accounts", {
+  tenantId: uuid("tenant_id").primaryKey().references(() => tenants.id),
+  accessTokenEnc: text("access_token_enc").notNull(),
+  mpUserId: text("mp_user_id").notNull(),
+  nickname: text("nickname"),
+  externalPosId: text("external_pos_id"),
+  terminalId: text("terminal_id"),
+  webhookSecretEnc: text("webhook_secret_enc"),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+/** Cada cobro iniciado desde una caja (QR o Point) y su estado en Mercado Pago. */
+export const mpCharges = pgTable("mp_charges", {
+  id: uuid("id").primaryKey(),
+  tenantId: uuid("tenant_id").notNull().references(() => tenants.id),
+  deviceId: uuid("device_id").notNull(),
+  kind: text("kind").notNull(),
+  amount: bigint("amount", { mode: "number" }).notNull(),
+  mpOrderId: text("mp_order_id").notNull(),
+  mpStatus: text("mp_status").notNull(),
+  status: text("status").notNull(),
+  statusDetail: text("status_detail"),
+  paymentId: text("payment_id"),
+  qrData: text("qr_data"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+export const schema = { tenants, accounts, devices, entities, mpAccounts, mpCharges };

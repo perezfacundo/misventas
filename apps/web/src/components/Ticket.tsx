@@ -3,6 +3,8 @@ import { flushSync } from "react-dom";
 import { formatMoney, lineTotal, PAYMENT_LABELS } from "@misventas/core";
 import type { Sale, Settings } from "../db";
 import { formatDateTime } from "../lib/format";
+import { drawerBytes, testPageBytes, ticketBytes } from "../print/escpos";
+import { isDesktop, printToNetwork, printToSystem } from "../print/desktop";
 
 function Ticket({ sale, settings }: { sale: Sale; settings: Settings }) {
   const width = settings.paperWidth === 80 ? "72mm" : "48mm";
@@ -56,12 +58,43 @@ function Ticket({ sale, settings }: { sale: Sale; settings: Settings }) {
   );
 }
 
-/** Imprime con el diálogo del navegador. En la app de escritorio (Fase 3) se reemplaza por ESC/POS directo. */
-export function printTicket(sale: Sale, settings: Settings): void {
+/** ¿Este dispositivo imprime directo (ESC/POS) en vez de usar la ventana de impresión? */
+export const printsDirect = (settings: Settings) => isDesktop() && settings.printer.mode !== "navegador";
+
+async function sendRaw(settings: Settings, data: Uint8Array): Promise<void> {
+  const { printer } = settings;
+  if (printer.mode === "sistema") {
+    if (!printer.name) throw new Error("Elegí la impresora en Ajustes.");
+    await printToSystem(printer.name, data);
+  } else {
+    if (!printer.host) throw new Error("Cargá la dirección de la impresora en Ajustes.");
+    await printToNetwork(printer.host, data);
+  }
+}
+
+/**
+ * Imprime el ticket. En la app de escritorio con impresora configurada sale directo en ESC/POS
+ * (y puede abrir el cajón); si no, con la ventana de impresión del navegador.
+ * Lanza un error con un mensaje para mostrar si la impresora no responde.
+ */
+export async function printTicket(sale: Sale, settings: Settings, opts: { openDrawer?: boolean } = {}): Promise<void> {
+  if (printsDirect(settings)) {
+    await sendRaw(settings, ticketBytes(sale, settings, { openDrawer: opts.openDrawer && settings.printer.openDrawer }));
+    return;
+  }
   const container = document.getElementById("print-root");
   if (!container) return;
   const root = createRoot(container);
   flushSync(() => root.render(<Ticket sale={sale} settings={settings} />));
   window.print();
   root.unmount();
+}
+
+/** Abre el cajón sin imprimir (venta en efectivo sin ticket). Solo con impresión directa. */
+export async function openCashDrawer(settings: Settings): Promise<void> {
+  if (printsDirect(settings) && settings.printer.openDrawer) await sendRaw(settings, drawerBytes());
+}
+
+export async function printTestPage(settings: Settings): Promise<void> {
+  await sendRaw(settings, testPageBytes(settings));
 }

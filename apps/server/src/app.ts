@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { existsSync } from "node:fs";
 import Fastify, { type FastifyReply, type FastifyRequest } from "fastify";
+import cors from "@fastify/cors";
 import rateLimit from "@fastify/rate-limit";
 import fastifyStatic from "@fastify/static";
 import { and, eq, isNull, sql } from "drizzle-orm";
@@ -9,6 +10,9 @@ import { rows, type Db } from "./db.ts";
 import { accounts, devices, tenants } from "./schema.ts";
 import { hashPassword, hashToken, newDeviceToken, verifyPassword } from "./security.ts";
 import { SyncHub } from "./events.ts";
+import { ApiError } from "./errors.ts";
+import { registerPayments } from "./payments.ts";
+import { SecretBox } from "./secrets.ts";
 
 export interface AppOptions {
   db: Db;
@@ -17,6 +21,14 @@ export interface AppOptions {
   webDist?: string;
   logger?: boolean;
   rateLimit?: boolean;
+  /** Clave para cifrar los tokens de Mercado Pago. Sin ella, Mercado Pago queda deshabilitado. */
+  appSecret?: string;
+  /** Base de la API de Mercado Pago (se cambia en los tests por un Mercado Pago falso). */
+  mpApiUrl?: string;
+  /** URL pública del servidor, para mostrar la dirección del webhook. */
+  publicUrl?: string;
+  /** Orígenes extra permitidos por CORS (la app de escritorio ya está incluida). */
+  corsOrigins?: string[];
 }
 
 interface DeviceContext {
@@ -24,16 +36,8 @@ interface DeviceContext {
   tenantId: string;
 }
 
-/** Errores con mensaje listo para mostrar en la app. */
-class ApiError extends Error {
-  readonly status: number;
-  readonly code: string;
-  constructor(status: number, code: string, message: string) {
-    super(message);
-    this.status = status;
-    this.code = code;
-  }
-}
+/** La app de escritorio (Tauri) carga la interfaz desde estos orígenes y habla con el servidor por CORS. */
+const DESKTOP_ORIGINS = ["tauri://localhost", "http://tauri.localhost", "https://tauri.localhost"];
 
 const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const MAX_PUSH = 500;
@@ -44,6 +48,8 @@ export async function buildApp(opts: AppOptions) {
   const app = Fastify({ logger: opts.logger ?? false, bodyLimit: 5 * 1024 * 1024, trustProxy: true });
 
   if (opts.rateLimit !== false) await app.register(rateLimit, { global: false });
+  const allowedOrigins = new Set([...DESKTOP_ORIGINS, ...(opts.corsOrigins ?? [])]);
+  await app.register(cors, { origin: (origin, cb) => cb(null, !origin || allowedOrigins.has(origin)), methods: ["GET", "POST", "PUT", "PATCH", "DELETE"] });
 
   app.setErrorHandler((err, _req, reply) => {
     if (err instanceof ApiError) return reply.status(err.status).send({ error: err.code, message: err.message });
@@ -259,7 +265,9 @@ export async function buildApp(opts: AppOptions) {
     const ctx = await authenticate(req);
     reply.hijack();
     const res = reply.raw;
+    const origin = req.headers.origin;
     res.writeHead(200, {
+      ...(origin && allowedOrigins.has(origin) ? { "Access-Control-Allow-Origin": origin } : {}),
       "Content-Type": "text/event-stream",
       "Cache-Control": "no-cache, no-transform",
       Connection: "keep-alive",
@@ -268,13 +276,22 @@ export async function buildApp(opts: AppOptions) {
     res.write(": conectado\n\n");
     const unsubscribe = hub.subscribe(ctx.tenantId, {
       deviceId: ctx.deviceId,
-      send: (seq) => res.write(`event: changed\ndata: ${JSON.stringify({ seq })}\n\n`),
+      send: (event, data) => res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`),
     });
     const heartbeat = setInterval(() => res.write(": ping\n\n"), 25_000);
     req.raw.on("close", () => {
       clearInterval(heartbeat);
       unsubscribe();
     });
+  });
+
+  await registerPayments(app, {
+    db,
+    hub,
+    authenticate,
+    secrets: opts.appSecret ? new SecretBox(opts.appSecret) : null,
+    mpApiUrl: opts.mpApiUrl ?? "https://api.mercadopago.com",
+    publicUrl: opts.publicUrl,
   });
 
   if (opts.webDist && existsSync(opts.webDist)) {

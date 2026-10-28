@@ -1,0 +1,9 @@
+**/node_modules
+**/dist
+**/dev-dist
+**/test-results
+**/playwright-report
+apps/server/data
+apps/desktop/src-tauri/target
+.git
+.env

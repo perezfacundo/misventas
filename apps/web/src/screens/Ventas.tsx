@@ -99,7 +99,9 @@ function SaleDetail({ sale, settings, onClose }: { sale: Sale | null; settings: 
         ) : (
           <>
             {canVoid && <Button variant="danger" className="mr-auto" onClick={() => setVoiding(true)}><Ban className="size-5" /> Anular</Button>}
-            <Button onClick={() => printTicket(sale, settings)}><Printer className="size-5" /> Imprimir</Button>
+            <Button onClick={() => printTicket(sale, settings).catch((e: unknown) => toast({ tone: "error", message: `No se pudo imprimir: ${e instanceof Error ? e.message : String(e)}` }))}>
+              <Printer className="size-5" /> Imprimir
+            </Button>
             <Button variant="primary" onClick={onClose}>Listo</Button>
           </>
         )

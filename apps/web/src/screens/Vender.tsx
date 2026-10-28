@@ -15,8 +15,9 @@ import { formatTime, plural } from "../lib/format";
 import { Button, cx, EmptyState, Field, Kbd, MoneyInput, Modal, StockBadge, TextInput, useToast } from "../components/ui";
 import { CobroDialog } from "../components/CobroDialog";
 import { OpenCashDialog } from "../components/OpenCashDialog";
-import { printTicket } from "../components/Ticket";
+import { openCashDrawer, printTicket } from "../components/Ticket";
 import { useSession } from "../components/Session";
+import { forgetCharge, getCharge, rememberedCharge, type Charge } from "../payments/mercadopago";
 
 /** "3*" antes de escanear o buscar multiplica la cantidad, como en las cajas de supermercado. */
 function parseQuery(q: string): { qty: number; text: string } {
@@ -34,6 +35,7 @@ export function Vender({ settings }: { settings: Settings }) {
   const [highlight, setHighlight] = useState<string | null>(null);
   const [lastSale, setLastSale] = useState<Sale | null>(null);
   const [dialog, setDialog] = useState<null | "cobro" | "abrir-caja" | "varios" | "descuento">(null);
+  const [resume, setResume] = useState<Charge | null>(null);
   const searchRef = useRef<HTMLInputElement>(null);
   const toast = useToast();
   const { user, can } = useSession();
@@ -78,10 +80,14 @@ export function Vender({ settings }: { settings: Settings }) {
   const finishSale = async (payments: Payment[], change: Cents, customerId?: string) => {
     try {
       const sale = await completeSale(cart, payments, change, { user, customerId });
+      forgetCharge();
+      setResume(null);
       setCart(emptyCart());
       setLastSale(sale);
       setDialog(null);
-      if (settings.autoPrint) printTicket(sale, settings);
+      const paidCash = payments.some((p) => p.method === "efectivo");
+      const print = settings.autoPrint ? printTicket(sale, settings, { openDrawer: paidCash }) : paidCash ? openCashDrawer(settings) : null;
+      print?.catch((e: unknown) => toast({ tone: "error", message: `No se pudo imprimir: ${e instanceof Error ? e.message : String(e)}` }));
       focusSearch();
     } catch (e) {
       toast({ tone: "error", message: e instanceof Error ? e.message : "No se pudo guardar la venta." });
@@ -130,6 +136,25 @@ export function Vender({ settings }: { settings: Settings }) {
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [noDialog]);
+
+  // Si la app se cerró mientras el cliente pagaba con Mercado Pago, se retoma ese cobro.
+  useEffect(() => {
+    const pending = rememberedCharge();
+    if (!pending) return;
+    if (!cart.lines.length) return forgetCharge();
+    void getCharge(pending.id)
+      .then((charge) => {
+        if (charge.status === "fallido") return forgetCharge();
+        setResume(charge);
+        setDialog("cobro");
+        toast({ tone: "ok", message: charge.status === "pagado" ? "Se recuperó un pago de Mercado Pago que quedó sin registrar." : "Hay un cobro de Mercado Pago en curso." });
+      })
+      .catch(() => {
+        // Sin conexión: se vuelve a intentar la próxima vez que se abra la pantalla.
+      });
+    // Solo al entrar a la pantalla.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   useEffect(() => {
     if (!highlight) return;
@@ -281,7 +306,10 @@ export function Vender({ settings }: { settings: Settings }) {
             </Button>
           </>
         ) : lastSale ? (
-          <LastSalePanel sale={lastSale} onPrint={() => printTicket(lastSale, settings)} />
+          <LastSalePanel
+            sale={lastSale}
+            onPrint={() => printTicket(lastSale, settings).catch((e: unknown) => toast({ tone: "error", message: `No se pudo imprimir: ${e instanceof Error ? e.message : String(e)}` }))}
+          />
         ) : (
           <p className="hidden text-lg text-muted lg:block">El total aparece acá apenas agregás un producto.</p>
         )}
@@ -304,7 +332,8 @@ export function Vender({ settings }: { settings: Settings }) {
         open={dialog === "cobro"}
         total={total}
         methods={settings.enabledMethods}
-        onClose={() => { setDialog(null); focusSearch(); }}
+        resume={resume}
+        onClose={() => { setDialog(null); setResume(null); focusSearch(); }}
         onConfirm={finishSale}
       />
       <OpenCashDialog open={dialog === "abrir-caja"} onClose={() => setDialog(null)} onOpened={() => setDialog("cobro")} />

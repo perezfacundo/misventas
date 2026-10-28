@@ -184,6 +184,20 @@ export interface BusinessSettings extends SyncFields {
   enabledMethods: PaymentMethod[];
 }
 
+/**
+ * Cómo imprime este dispositivo: con la ventana de impresión del navegador, o (en la app de escritorio)
+ * directo en ESC/POS a una impresora del sistema o de red.
+ */
+export interface PrinterConfig {
+  mode: "navegador" | "sistema" | "red";
+  /** Nombre de sistema de la impresora (modo "sistema"). */
+  name: string;
+  /** IP o IP:puerto (modo "red"; por defecto puerto 9100). */
+  host: string;
+  /** Abrir el cajón conectado a la ticketera al cobrar en efectivo. */
+  openDrawer: boolean;
+}
+
 /** Preferencias de este dispositivo. */
 export interface DeviceSettings {
   devicePrefix: string;
@@ -191,6 +205,7 @@ export interface DeviceSettings {
   theme: Theme;
   autoPrint: boolean;
   paperWidth: 58 | 80;
+  printer: PrinterConfig;
   onboarded: boolean;
 }
 
@@ -268,6 +283,7 @@ async function migrateToV2(tx: Transaction): Promise<void> {
     theme: (old.theme as Theme) ?? "auto",
     autoPrint: (old.autoPrint as boolean) ?? false,
     paperWidth: (old.paperWidth as 58 | 80) ?? 58,
+    printer: { mode: "navegador", name: "", host: "", openDrawer: false },
     onboarded: (old.onboarded as boolean) ?? false,
   };
   await tx.table("meta").put({ key: "settings", value: device });

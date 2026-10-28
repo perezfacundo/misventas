@@ -8,6 +8,7 @@ const systemChromium = process.env.CHROMIUM_PATH ?? (existsSync("/usr/bin/chromi
 // Base de datos nueva en cada corrida: los tests crean cuentas con emails únicos, pero así no se acumula nada.
 const dataDir = mkdtempSync(join(tmpdir(), "misventas-e2e-"));
 const API_PORT = 3100;
+export const FAKE_MP_PORT = 3101;
 
 export default defineConfig({
   testDir: "e2e",
@@ -23,9 +24,20 @@ export default defineConfig({
   ],
   webServer: [
     {
+      // Mercado Pago falso: los tests simulan que el cliente paga y le avisa al servidor por webhook.
+      command: "node ../server/test/fake-mercadopago.ts",
+      url: `http://127.0.0.1:${FAKE_MP_PORT}/__fake/orders`,
+      env: { PORT: String(FAKE_MP_PORT), WEBHOOK_URL: `http://127.0.0.1:${API_PORT}/api/webhooks/mercadopago` },
+      reuseExistingServer: false,
+      timeout: 30_000,
+    },
+    {
       command: "node ../server/src/main.ts",
       url: `http://127.0.0.1:${API_PORT}/api/health`,
-      env: { PORT: String(API_PORT), DATA_DIR: dataDir, DISABLE_RATE_LIMIT: "1", WEB_DIST: "", NODE_ENV: "test" },
+      env: {
+        PORT: String(API_PORT), DATA_DIR: dataDir, DISABLE_RATE_LIMIT: "1", WEB_DIST: "", NODE_ENV: "test",
+        APP_SECRET: "secreto-e2e", MP_API_URL: `http://127.0.0.1:${FAKE_MP_PORT}`,
+      },
       reuseExistingServer: false,
       timeout: 60_000,
     },
