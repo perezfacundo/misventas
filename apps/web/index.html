@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="es-AR">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="theme-color" content="#0e7a4f" />
+    <meta name="description" content="Vender, cobrar y controlar el stock del kiosco, con o sin internet." />
+    <link rel="icon" href="/icon.svg" type="image/svg+xml" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+    <title>Mis Ventas</title>
+    <script>
+      // Aplica tema y tamaño de texto antes de pintar, para que no parpadee.
+      try {
+        var ui = JSON.parse(localStorage.getItem("misventas:ui") || "{}");
+        if (ui.theme === "claro") document.documentElement.dataset.theme = "light";
+        if (ui.theme === "oscuro") document.documentElement.dataset.theme = "dark";
+        if (ui.textSize) document.documentElement.dataset.size = ui.textSize;
+      } catch (e) {}
+    </script>
+  </head>
+  <body>
+    <div id="root"></div>
+    <div id="print-root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

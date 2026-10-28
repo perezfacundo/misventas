@@ -1,0 +1,15 @@
+{
+  "name": "misventas",
+  "private": true,
+  "type": "module",
+  "workspaces": ["packages/*", "apps/*"],
+  "scripts": {
+    "dev": "npm run dev -w @misventas/web",
+    "server": "npm run dev -w @misventas/server",
+    "build": "npm run build -w @misventas/web",
+    "preview": "npm run preview -w @misventas/web",
+    "test": "npm test --workspaces --if-present",
+    "typecheck": "npm run typecheck --workspaces --if-present",
+    "e2e": "npm run e2e -w @misventas/web"
+  }
+}

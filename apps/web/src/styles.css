@@ -1,0 +1,129 @@
+@import "tailwindcss";
+@import "@fontsource-variable/inter";
+
+/* Tokens de color: cada color tiene un significado fijo en toda la app.
+   brand = dinero que entra / acción principal, warn = avisos de stock, danger = errores y faltantes. */
+:root {
+  --bg: #f4f5f2;
+  --surface: #ffffff;
+  --surface-2: #eceee9;
+  --ink: #16181a;
+  --muted: #565c61;
+  --line: #d6dad3;
+  --brand: #0e7a4f;
+  --brand-hover: #0b6641;
+  --brand-ink: #ffffff;
+  --brand-soft: #dcf2e6;
+  --warn: #8f5300;
+  --warn-soft: #fcefd6;
+  --danger: #b42318;
+  --danger-soft: #fde7e4;
+  --focus: #2563eb;
+  color-scheme: light;
+}
+
+:root[data-theme="dark"] {
+  --bg: #0f1211;
+  --surface: #171b1a;
+  --surface-2: #222826;
+  --ink: #eef1ee;
+  --muted: #a6aeaa;
+  --line: #313836;
+  --brand: #3ccb8f;
+  --brand-hover: #5ad6a2;
+  --brand-ink: #04210f;
+  --brand-soft: #123528;
+  --warn: #f2b54b;
+  --warn-soft: #3a2c10;
+  --danger: #ff8a7a;
+  --danger-soft: #3d1814;
+  --focus: #7aa7ff;
+  color-scheme: dark;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0f1211;
+    --surface: #171b1a;
+    --surface-2: #222826;
+    --ink: #eef1ee;
+    --muted: #a6aeaa;
+    --line: #313836;
+    --brand: #3ccb8f;
+    --brand-hover: #5ad6a2;
+    --brand-ink: #04210f;
+    --brand-soft: #123528;
+    --warn: #f2b54b;
+    --warn-soft: #3a2c10;
+    --danger: #ff8a7a;
+    --danger-soft: #3d1814;
+    --focus: #7aa7ff;
+    color-scheme: dark;
+  }
+}
+
+@theme inline {
+  --color-bg: var(--bg);
+  --color-surface: var(--surface);
+  --color-surface-2: var(--surface-2);
+  --color-ink: var(--ink);
+  --color-muted: var(--muted);
+  --color-line: var(--line);
+  --color-brand: var(--brand);
+  --color-brand-hover: var(--brand-hover);
+  --color-brand-ink: var(--brand-ink);
+  --color-brand-soft: var(--brand-soft);
+  --color-warn: var(--warn);
+  --color-warn-soft: var(--warn-soft);
+  --color-danger: var(--danger);
+  --color-danger-soft: var(--danger-soft);
+  --color-focus: var(--focus);
+  --font-sans: "Inter Variable", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+}
+
+/* Tamaño de texto ajustable: todo está en rem, así que escala la app entera. */
+html {
+  font-size: 16px;
+}
+html[data-size="grande"] {
+  font-size: 18.5px;
+}
+html[data-size="muy-grande"] {
+  font-size: 21px;
+}
+
+body {
+  background: var(--bg);
+  color: var(--ink);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* Los montos siempre con dígitos de ancho fijo, para que las columnas se alineen. */
+.num {
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.01em;
+}
+
+:focus-visible {
+  outline: 3px solid var(--focus);
+  outline-offset: 2px;
+}
+
+#print-root {
+  display: none;
+}
+
+@media print {
+  body > #root {
+    display: none !important;
+  }
+  #print-root {
+    display: block;
+  }
+  body {
+    background: #fff;
+    color: #000;
+  }
+}
