@@ -81,6 +81,18 @@ describe("configuración de Mercado Pago", () => {
     expect((await call("POST", "/api/mp/qr-setup", address)).json().message).toMatch(/Ya existe una caja/);
   });
 
+  it("en la versión de prueba no se puede conectar una cuenta real", async () => {
+    const demo = await buildApp({ db: handle.db, rateLimit: false, appSecret: "x", mpApiUrl: fake.url, demo: true });
+    const headers = { authorization: `Bearer ${token}` };
+    const res = await demo.inject({ method: "PUT", url: "/api/mp/config", payload: { accessToken: FAKE_TOKEN }, headers });
+    expect(res.statusCode).toBe(403);
+    expect((await demo.inject({ method: "GET", url: "/api/mp/config", headers })).json()).toMatchObject({ available: false, demo: true });
+    const info = await demo.inject({ method: "GET", url: "/api/info" });
+    expect(info.json()).toEqual({ demo: true });
+    expect(info.headers["x-robots-tag"]).toBe("noindex, nofollow");
+    await demo.close();
+  });
+
   it("sin APP_SECRET en el servidor no se puede conectar", async () => {
     const noSecret = await buildApp({ db: handle.db, rateLimit: false, mpApiUrl: fake.url });
     const res = await noSecret.inject({ method: "PUT", url: "/api/mp/config", payload: { accessToken: FAKE_TOKEN }, headers: { authorization: `Bearer ${token}` } });

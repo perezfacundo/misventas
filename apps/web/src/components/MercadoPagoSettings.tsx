@@ -70,6 +70,9 @@ export function MercadoPagoSettings() {
     return <Card>{header}<p className="text-muted">No se pudo consultar Mercado Pago: {error}</p></Card>;
   }
   if (!config) return <Card>{header}<p className="text-muted">Cargando…</p></Card>;
+  if (config.demo) {
+    return <Card>{header}<p className="text-muted">En la versión de prueba no se puede conectar una cuenta de Mercado Pago. En la versión final se cobra con QR o Point y la venta se registra sola cuando entra el pago.</p></Card>;
+  }
   if (!config.available) {
     return <Card>{header}<p className="text-muted">El servidor no tiene configurada la clave <code>APP_SECRET</code>, que hace falta para guardar el token de Mercado Pago de forma segura.</p></Card>;
   }

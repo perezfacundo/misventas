@@ -1,0 +1,30 @@
+# Versión de prueba pública en Render (https://render.com): Dashboard → New → Blueprint → elegí este repositorio.
+# Crea la app (desde el Dockerfile) y su base PostgreSQL, y la deja en https://<nombre>.onrender.com.
+#
+# Plan gratis: la app se duerme tras 15 minutos sin uso (el primer acceso tarda ~1 minuto) y la base gratis
+# vence a los 30 días. Para una demo más ágil, cambiá `plan: free` por `plan: starter` en el servicio web.
+services:
+  - type: web
+    name: misventas
+    runtime: docker
+    plan: free
+    region: virginia
+    healthCheckPath: /api/health
+    envVars:
+      - key: DATABASE_URL
+        fromDatabase:
+          name: misventas-db
+          property: connectionString
+      # Clave para cifrar tokens de Mercado Pago: Render la genera al azar la primera vez.
+      - key: APP_SECRET
+        generateValue: true
+      # Versión de prueba: aviso visible, Mercado Pago bloqueado y sin indexar en buscadores.
+      - key: DEMO_MODE
+        value: "1"
+
+databases:
+  - name: misventas-db
+    plan: free
+    region: virginia
+    databaseName: misventas
+    user: misventas

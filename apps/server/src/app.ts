@@ -29,6 +29,11 @@ export interface AppOptions {
   publicUrl?: string;
   /** Orígenes extra permitidos por CORS (la app de escritorio ya está incluida). */
   corsOrigins?: string[];
+  /**
+   * Versión de prueba pública: la app muestra un aviso, Mercado Pago no se puede conectar
+   * (nadie debería vincular su cuenta real) y se les pide a los buscadores que no indexen el sitio.
+   */
+  demo?: boolean;
 }
 
 interface DeviceContext {
@@ -40,12 +45,27 @@ interface DeviceContext {
 const DESKTOP_ORIGINS = ["tauri://localhost", "http://tauri.localhost", "https://tauri.localhost"];
 
 const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+/** Oculta credenciales en URLs que se escriben en los logs. */
+export const redactUrl = (url: string) => url.replace(/([?&]token=)[^&]*/g, "$1***");
 const MAX_PUSH = 500;
 
 export async function buildApp(opts: AppOptions) {
   const { db } = opts;
   const hub = opts.hub ?? new SyncHub();
-  const app = Fastify({ logger: opts.logger ?? false, bodyLimit: 5 * 1024 * 1024, trustProxy: true });
+  const app = Fastify({
+    logger: opts.logger
+      ? {
+          level: process.env.LOG_LEVEL ?? "info",
+          // Los avisos en tiempo real llevan el token del dispositivo en la URL: nunca tiene que quedar en los logs.
+          serializers: {
+            req: (req) => ({ method: req.method, url: redactUrl(req.url) }),
+          },
+        }
+      : false,
+    bodyLimit: 5 * 1024 * 1024,
+    trustProxy: true,
+  });
 
   if (opts.rateLimit !== false) await app.register(rateLimit, { global: false });
   const allowedOrigins = new Set([...DESKTOP_ORIGINS, ...(opts.corsOrigins ?? [])]);
@@ -85,7 +105,15 @@ export async function buildApp(opts: AppOptions) {
 
   const authLimit = opts.rateLimit === false ? {} : { rateLimit: { max: 10, timeWindow: "1 minute" } };
 
+  if (opts.demo) {
+    app.addHook("onSend", async (_req, reply) => {
+      reply.header("X-Robots-Tag", "noindex, nofollow");
+    });
+  }
+
   app.get("/api/health", async () => ({ ok: true }));
+  /** Datos públicos del servidor que la app necesita al arrancar. */
+  app.get("/api/info", async () => ({ demo: Boolean(opts.demo) }));
 
   app.post<{ Body: { businessName: string; email: string; password: string; deviceName: string; ownerUserId?: string } }>(
     "/api/auth/register",
@@ -292,6 +320,7 @@ export async function buildApp(opts: AppOptions) {
     secrets: opts.appSecret ? new SecretBox(opts.appSecret) : null,
     mpApiUrl: opts.mpApiUrl ?? "https://api.mercadopago.com",
     publicUrl: opts.publicUrl,
+    demo: opts.demo ?? false,
   });
 
   if (opts.webDist && existsSync(opts.webDist)) {

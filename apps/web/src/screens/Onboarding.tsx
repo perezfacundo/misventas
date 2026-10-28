@@ -8,6 +8,7 @@ import { createUser } from "../data/users";
 import { isValidPin } from "../lib/pin";
 import { Button, cx, Field, MoneyInput, TextInput } from "../components/ui";
 import { AccountDialog } from "./Ajustes";
+import { DemoBanner } from "../lib/demo";
 
 /** Primer uso: o se arranca un kiosco nuevo en tres pasos, o se vincula este dispositivo a una cuenta existente. */
 export function Onboarding() {
@@ -120,12 +121,15 @@ function Shell({ children, onSubmit }: { children: ReactNode; onSubmit?: () => v
     </>
   );
   return (
-    <div className="grid min-h-dvh place-items-center bg-bg p-4">
+    <div className="flex min-h-dvh flex-col bg-bg">
+      <DemoBanner />
+      <div className="grid flex-1 place-items-center p-4">
       {onSubmit ? (
         <form className={className} onSubmit={(e) => { e.preventDefault(); onSubmit(); }}>{content}</form>
       ) : (
         <div className={className}>{content}</div>
       )}
+      </div>
     </div>
   );
 }

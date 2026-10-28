@@ -2,7 +2,7 @@ import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { buildApp } from "../src/app.ts";
+import { buildApp, redactUrl } from "../src/app.ts";
 import { openDb, type DbHandle } from "../src/db.ts";
 import { SyncHub } from "../src/events.ts";
 import { sql } from "drizzle-orm";
@@ -164,5 +164,13 @@ describe("migraciones", () => {
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
+  });
+});
+
+describe("logs", () => {
+  it("no escriben el token del dispositivo", () => {
+    expect(redactUrl("/api/sync/events?token=abc123")).toBe("/api/sync/events?token=***");
+    expect(redactUrl("/api/x?a=1&token=abc&b=2")).toBe("/api/x?a=1&token=***&b=2");
+    expect(redactUrl("/api/sync/pull?since=4")).toBe("/api/sync/pull?since=4");
   });
 });

@@ -28,12 +28,16 @@ const app = await buildApp({
   rateLimit: process.env.DISABLE_RATE_LIMIT !== "1",
   appSecret: appSecret(),
   mpApiUrl: process.env.MP_API_URL,
-  publicUrl: process.env.PUBLIC_URL,
+  // Render (y otras plataformas) informan la URL pública por su cuenta.
+  publicUrl: process.env.PUBLIC_URL ?? process.env.RENDER_EXTERNAL_URL,
+  demo: process.env.DEMO_MODE === "1",
   corsOrigins: process.env.CORS_ORIGINS?.split(",").map((o) => o.trim()).filter(Boolean),
 });
 
 await app.listen({ port, host });
-console.log(`Mis Ventas: servidor en http://${host}:${port} (${process.env.DATABASE_URL ? "PostgreSQL" : "PGlite"})`);
+console.log(
+  `Mis Ventas: servidor en http://${host}:${port} (${process.env.DATABASE_URL ? "PostgreSQL" : "PGlite"}${process.env.DEMO_MODE === "1" ? ", versión de prueba" : ""})`,
+);
 
 for (const signal of ["SIGINT", "SIGTERM"] as const) {
   process.on(signal, async () => {

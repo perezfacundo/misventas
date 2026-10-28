@@ -21,6 +21,8 @@ export interface PaymentsOptions {
   secrets: SecretBox | null;
   mpApiUrl: string;
   publicUrl?: string;
+  /** En la versión de prueba no se puede conectar una cuenta de Mercado Pago. */
+  demo: boolean;
   authenticate: (req: FastifyRequest) => Promise<DeviceContext>;
 }
 
@@ -43,6 +45,10 @@ function chargeView(c: Charge) {
 /** Rutas de Mercado Pago: configuración de la cuenta, cobros QR/Point y webhook. */
 export async function registerPayments(app: FastifyInstance, opts: PaymentsOptions): Promise<void> {
   const { db, hub, authenticate } = opts;
+
+  function assertNotDemo(): void {
+    if (opts.demo) throw new ApiError(403, "demo", "En la versión de prueba no se puede conectar Mercado Pago.");
+  }
 
   function box(): SecretBox {
     if (!opts.secrets) throw new ApiError(503, "no_app_secret", "El servidor no tiene configurada la clave APP_SECRET: no se puede conectar Mercado Pago.");
@@ -103,7 +109,8 @@ export async function registerPayments(app: FastifyInstance, opts: PaymentsOptio
     const ctx = await authenticate(req);
     const acc = await accountOf(ctx.tenantId);
     return {
-      available: opts.secrets !== null,
+      available: opts.secrets !== null && !opts.demo,
+      demo: opts.demo,
       connected: Boolean(acc),
       nickname: acc?.nickname ?? null,
       externalPosId: acc?.externalPosId ?? null,
@@ -130,6 +137,7 @@ export async function registerPayments(app: FastifyInstance, opts: PaymentsOptio
     },
     async (req) => {
       const ctx = await authenticate(req);
+      assertNotDemo();
       const b = req.body;
       const existing = await accountOf(ctx.tenantId);
       if (b.accessToken) {

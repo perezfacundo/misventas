@@ -11,6 +11,7 @@ import { useSyncStatus, type SyncStatus } from "../sync/engine";
 import { formatTime } from "../lib/format";
 import { cx, Modal } from "./ui";
 import { useSession } from "./Session";
+import { DemoBanner } from "../lib/demo";
 
 interface NavItem {
   route: Route;
@@ -72,6 +73,7 @@ export function Layout({ route, navigate, businessName, children }: {
       </nav>
 
       <div className="flex min-h-0 min-w-0 flex-1 flex-col">
+        <DemoBanner />
         {/* Barra de estado: tranquila, siempre visible */}
         <div className="flex items-center gap-3 border-b border-line bg-surface px-4 py-2 text-sm sm:text-base">
           <span className="hidden truncate font-bold sm:inline">{businessName || "Mis Ventas"}</span>

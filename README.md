@@ -55,6 +55,21 @@ npm run typecheck
 
 Para probar contra PostgreSQL real: `TEST_DATABASE_URL=postgres://… npm test -w @misventas/server`.
 
+## Versión de prueba pública (Render)
+
+Para mandarle una URL a futuros clientes, sin administrar un servidor:
+
+1. Subí el repositorio a GitHub (puede ser privado).
+2. En [Render](https://render.com): **New → Blueprint**, elegí el repositorio y tocá **Apply**. El archivo `render.yaml` crea la app y su PostgreSQL, y genera `APP_SECRET`.
+3. En unos minutos queda en `https://misventas.onrender.com` (o el nombre que te asigne Render).
+
+`DEMO_MODE=1` (ya configurado en el Blueprint) activa el modo de prueba:
+- Muestra el aviso "Versión de prueba" en toda la app.
+- Bloquea la conexión de cuentas reales de Mercado Pago.
+- Les pide a los buscadores que no indexen el sitio.
+
+**Límites del plan gratis:** la app se duerme tras 15 minutos sin uso (el primer acceso tarda cerca de un minuto) y la base gratis vence a los 30 días. Para que no se duerma, cambiá `plan: free` por `plan: starter` en el servicio web. Cada push a la rama principal vuelve a publicar.
+
 ## Puesta en producción
 
 Necesitás un servidor con Docker (un VPS de los más chicos alcanza), un dominio apuntando a su IP y los puertos 80 y 443 abiertos.
@@ -76,9 +91,11 @@ docker compose exec db pg_dump -U misventas misventas | gzip > backup-$(date +%F
 |---|---|
 | `DATABASE_URL` | PostgreSQL. Sin ella se usa PGlite en `DATA_DIR`. |
 | `APP_SECRET` | Cifra los tokens de Mercado Pago. Obligatoria en producción para usar MP. No la cambies después. |
-| `PUBLIC_URL` | URL pública (`https://…`), para mostrar la dirección del webhook de Mercado Pago. |
+| `PUBLIC_URL` | URL pública (`https://…`), para mostrar la dirección del webhook de Mercado Pago. En Render se toma sola. |
 | `PORT`, `HOST` | Por defecto `3000` y `127.0.0.1`. En Docker, `0.0.0.0`. |
 | `CORS_ORIGINS` | Orígenes extra permitidos (separados por coma). La app de escritorio ya está incluida. |
+| `DEMO_MODE` | `1` para la versión de prueba pública: aviso visible, Mercado Pago bloqueado y sin indexar. |
+| `LOG_LEVEL` | Detalle de los logs (`info` por defecto). Los tokens de dispositivo nunca se escriben. |
 | `DATA_DIR` | Carpeta de PGlite. |
 | `WEB_DIST` | Build de la app web que se sirve. Por defecto `apps/web/dist`. |
 

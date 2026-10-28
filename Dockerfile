@@ -27,5 +27,6 @@ COPY apps/server/src apps/server/src
 COPY --from=build /app/apps/web/dist apps/web/dist
 USER node
 EXPOSE 3000
-HEALTHCHECK --interval=30s --timeout=5s CMD node -e "fetch('http://127.0.0.1:3000/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
+# Usa el puerto que asigne la plataforma (Render, Railway, etc. definen PORT).
+HEALTHCHECK --interval=30s --timeout=5s CMD node -e "fetch('http://127.0.0.1:'+(process.env.PORT||3000)+'/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
 CMD ["node", "apps/server/src/main.ts"]

@@ -18,6 +18,8 @@ export interface Charge {
 
 export interface MpConfig {
   available: boolean;
+  /** Versión de prueba pública: Mercado Pago no se puede conectar. */
+  demo: boolean;
   connected: boolean;
   nickname: string | null;
   externalPosId: string | null;
