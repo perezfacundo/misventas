@@ -112,7 +112,7 @@ Los tests usan un Mercado Pago falso (`apps/server/test/fake-mercadopago.ts`) co
 
 ## App de escritorio
 
-Requisitos: Rust y las dependencias de sistema de [Tauri 2](https://v2.tauri.app/start/prerequisites/). En Linux: `webkit2gtk-4.1`.
+Requisitos: Rust y las dependencias de sistema de [Tauri 2](https://v2.tauri.app/start/prerequisites/). En Linux, además: `webkit2gtk-4.1` y los headers de CUPS (`libcups2-dev` en Debian/Ubuntu) para la impresión directa.
 
 ```bash
 npm run dev -w @misventas/desktop                                            # desarrollo (usa el servidor de Vite)
