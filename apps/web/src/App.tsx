@@ -11,6 +11,7 @@ import { Ventas } from "./screens/Ventas";
 import { Clientes } from "./screens/Clientes";
 import { Proveedores } from "./screens/Proveedores";
 import { Reportes } from "./screens/Reportes";
+import { Promociones } from "./screens/Promociones";
 import { Ajustes } from "./screens/Ajustes";
 import { Onboarding } from "./screens/Onboarding";
 import type { Settings } from "./db";
@@ -37,7 +38,9 @@ function Screens({ settings }: { settings: Settings }) {
   const { can } = useSession();
   // Si el rol no permite la pantalla (por ejemplo, un cajero con un link a Reportes), vuelve a Vender.
   const allowed: Route =
-    (route === "reportes" && !can("verReportes")) || (route === "proveedores" && !can("gestionarProveedores")) ? "vender" : route;
+    (route === "reportes" && !can("verReportes")) || (route === "proveedores" && !can("gestionarProveedores")) || (route === "promociones" && !can("editarProductos"))
+      ? "vender"
+      : route;
 
   return (
     <Layout route={allowed} navigate={navigate} businessName={settings.businessName}>
@@ -49,6 +52,7 @@ function Screens({ settings }: { settings: Settings }) {
       {allowed === "clientes" && <Clientes settings={settings} />}
       {allowed === "proveedores" && <Proveedores settings={settings} />}
       {allowed === "reportes" && <Reportes />}
+      {allowed === "promociones" && <Promociones />}
       {allowed === "ajustes" && <Ajustes settings={settings} />}
     </Layout>
   );

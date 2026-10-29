@@ -1,6 +1,6 @@
 import { useState, type ReactNode } from "react";
 import {
-  BarChart3, CloudOff, CloudUpload, LineChart, Menu, Package, Receipt, RefreshCw, Settings as SettingsIcon,
+  BadgePercent, BarChart3, CloudOff, CloudUpload, LineChart, Menu, Package, Receipt, RefreshCw, Settings as SettingsIcon,
   ShoppingCart, Truck, UserRound, Users, Wallet, Wifi, WifiOff, type LucideIcon,
 } from "lucide-react";
 import type { Permission } from "@misventas/core";
@@ -11,6 +11,8 @@ import { useSyncStatus, type SyncStatus } from "../sync/engine";
 import { formatTime } from "../lib/format";
 import { cx, Modal } from "./ui";
 import { useSession } from "./Session";
+import { branchName, hasMultipleBranches, useBranches } from "../data/branches";
+import { currentBranchId } from "../db";
 import { DemoBanner } from "../lib/demo";
 
 interface NavItem {
@@ -30,6 +32,7 @@ const NAV: NavItem[] = [
   { route: "ventas", label: "Ventas", icon: Receipt, primary: false },
   { route: "clientes", label: "Fiado", icon: Users, primary: false },
   { route: "proveedores", label: "Proveedores", icon: Truck, primary: false, permission: "gestionarProveedores" },
+  { route: "promociones", label: "Promos", icon: BadgePercent, primary: false, permission: "editarProductos" },
   { route: "reportes", label: "Reportes", icon: LineChart, primary: false, permission: "verReportes" },
   { route: "ajustes", label: "Ajustes", icon: SettingsIcon, primary: false },
 ];
@@ -46,6 +49,7 @@ export function Layout({ route, navigate, businessName, children }: {
   const { user, can, lock } = useSession();
   const now = useNow();
   const [more, setMore] = useState(false);
+  const branches = useBranches();
   const items = NAV.filter((n) => !n.permission || can(n.permission));
   const mobileMain = items.filter((n) => n.primary);
   const mobileMore = items.filter((n) => !n.primary);
@@ -76,7 +80,10 @@ export function Layout({ route, navigate, businessName, children }: {
         <DemoBanner />
         {/* Barra de estado: tranquila, siempre visible */}
         <div className="flex items-center gap-3 border-b border-line bg-surface px-4 py-2 text-sm sm:text-base">
-          <span className="hidden truncate font-bold sm:inline">{businessName || "Mis Ventas"}</span>
+          <span className="hidden truncate font-bold sm:inline">
+            {businessName || "Mis Ventas"}
+            {hasMultipleBranches(branches) && <span className="font-normal text-muted"> · {branchName(branches, currentBranchId())}</span>}
+          </span>
           <ConnectionStatus online={online} sync={sync} />
           <span className="ml-auto" />
           <button type="button" onClick={() => navigate("caja")} className="truncate text-muted hover:text-ink">

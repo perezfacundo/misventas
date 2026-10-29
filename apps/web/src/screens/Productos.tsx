@@ -1,9 +1,13 @@
 import { useMemo, useRef, useState } from "react";
-import { Download, PackagePlus, Plus, Search, Star, TrendingUp, Upload } from "lucide-react";
+import { Download, PackagePlus, Plus, Search, Send, Star, TrendingUp, Upload } from "lucide-react";
 import { formatMoney, searchProducts, stockStatus } from "@misventas/core";
 import type { Product, Settings, Supplier } from "../db";
 import { findOrCreateSupplier, useSuppliers } from "../data/suppliers";
 import { useSession } from "../components/Session";
+import { ExpiringLots } from "../components/ExpiringLots";
+import { TransferBanners, TransferDialog } from "../components/Transfers";
+import { hasMultipleBranches, useBranches } from "../data/branches";
+import { useExpiringLots } from "../data/lots";
 import { catalogOptions, createProduct, updateProduct, useProducts } from "../data/products";
 import { downloadFile, productsFromCsv, productsToCsv, type CsvImportResult } from "../data/csv";
 import { Button, cx, EmptyState, Modal, PageHeader, StockBadge, inputClass, useToast } from "../components/ui";
@@ -12,7 +16,7 @@ import { PurchaseDialog } from "../components/PurchaseDialog";
 import { PriceUpdateDialog } from "../components/PriceUpdateDialog";
 import { formatDate, plural } from "../lib/format";
 
-type Filter = "todos" | "faltan" | "favoritos";
+type Filter = "todos" | "faltan" | "favoritos" | "vencer";
 
 export function Productos({ settings }: { settings: Settings }) {
   const products = useProducts();
@@ -22,13 +26,15 @@ export function Productos({ settings }: { settings: Settings }) {
   const [filter, setFilter] = useState<Filter>("todos");
   const [category, setCategory] = useState("");
   const [editing, setEditing] = useState<{ id: string | null; barcode?: string } | null>(null);
-  const [dialog, setDialog] = useState<null | "ingreso" | "precios">(null);
+  const [dialog, setDialog] = useState<null | "ingreso" | "precios" | "envio">(null);
+  const multiBranch = hasMultipleBranches(useBranches());
   const [csv, setCsv] = useState<CsvImportResult | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
   const toast = useToast();
   const { categories } = catalogOptions(products);
 
   const missingCount = products.filter((p) => p.trackStock && stockStatus(p.stock, p.minStock) !== "ok").length;
+  const expiringCount = useExpiringLots(7).length;
 
   const visible = useMemo(() => {
     let list = query.trim() ? searchProducts(products, query, 500) : products;
@@ -78,9 +84,12 @@ export function Productos({ settings }: { settings: Settings }) {
             {can("editarProductos") && <Button variant="primary" onClick={() => setEditing({ id: null })}><Plus className="size-5" /> Nuevo producto</Button>}
             {can("ingresarMercaderia") && <Button onClick={() => setDialog("ingreso")}><PackagePlus className="size-5" /> Llegó mercadería</Button>}
             {can("editarProductos") && <Button onClick={() => setDialog("precios")}><TrendingUp className="size-5" /> Actualizar precios</Button>}
+            {multiBranch && can("ingresarMercaderia") && <Button onClick={() => setDialog("envio")}><Send className="size-5" /> Enviar a otra sucursal</Button>}
           </>
         }
       />
+
+      {multiBranch && <TransferBanners />}
 
       <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center">
         <div className="relative flex-1">
@@ -98,6 +107,7 @@ export function Productos({ settings }: { settings: Settings }) {
           ["todos", "Todos"],
           ["faltan", `Me faltan (${missingCount})`],
           ["favoritos", "Favoritos"],
+          ...(products.some((p) => p.tracksExpiry) ? [["vencer", `Por vencer (${expiringCount})`] as [Filter, string]] : []),
         ] as [Filter, string][]).map(([f, label]) => (
           <button
             key={f}
@@ -108,7 +118,7 @@ export function Productos({ settings }: { settings: Settings }) {
             className={cx(
               "min-h-11 rounded-full border px-4 font-semibold",
               filter === f ? "border-ink bg-ink text-bg" : "border-line bg-surface hover:bg-surface-2",
-              f === "faltan" && missingCount > 0 && filter !== f && "border-warn/50 text-warn",
+              ((f === "faltan" && missingCount > 0) || (f === "vencer" && expiringCount > 0)) && filter !== f && "border-warn/50 text-warn",
             )}
           >
             {label}
@@ -135,6 +145,9 @@ export function Productos({ settings }: { settings: Settings }) {
         />
       </div>
 
+      {filter === "vencer" ? (
+        <div className="rounded-2xl border border-line bg-surface px-4"><ExpiringLots days={7} /></div>
+      ) : (
       <div className="overflow-hidden rounded-2xl border border-line bg-surface">
         {visible.length === 0 ? (
           <EmptyState icon={<Search />} title={products.length ? "No hay productos que coincidan" : "Todavía no cargaste productos"}>
@@ -148,6 +161,7 @@ export function Productos({ settings }: { settings: Settings }) {
           </ul>
         )}
       </div>
+      )}
 
       <ProductForm
         open={editing !== null}
@@ -164,6 +178,7 @@ export function Productos({ settings }: { settings: Settings }) {
         onClose={() => setDialog(null)}
         onUnknownCode={(code) => { setDialog(null); setEditing({ id: null, barcode: code }); }}
       />
+      <TransferDialog open={dialog === "envio"} products={products} onClose={() => setDialog(null)} />
       <PriceUpdateDialog open={dialog === "precios"} products={products} suppliers={suppliers} defaultRounding={settings.priceRounding} onClose={() => setDialog(null)} />
 
       <Modal

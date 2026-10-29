@@ -8,6 +8,11 @@ import { formatLongDay } from "../lib/format";
 import { useNow, type Route } from "../lib/hooks";
 import { Button, Card, cx, EmptyState, PageHeader, StockBadge } from "../components/ui";
 import { useSession } from "../components/Session";
+import { ExpiringLots } from "../components/ExpiringLots";
+import { useExpiringLots } from "../data/lots";
+import { branchName, hasMultipleBranches, useBranches } from "../data/branches";
+import { currentBranchId } from "../db";
+import { DEFAULT_BRANCH_ID } from "@misventas/core";
 
 const WEEK = 7 * 24 * 60 * 60 * 1000;
 
@@ -15,19 +20,24 @@ export function Hoy({ navigate }: { navigate: (r: Route) => void }) {
   const now = useNow(60_000);
   const products = useProducts();
   const { can } = useSession();
+  const branches = useBranches();
+  const multiBranch = hasMultipleBranches(branches);
   const data = useLiveQuery(async () => {
     const from = startOfDay(now);
     const to = Date.now();
+    // Con varias sucursales, "Hoy" es el de la sucursal de esta caja (el total general está en Reportes).
+    const mine = <T extends { branchId?: string }>(list: T[]) => (multiBranch ? list.filter((x) => (x.branchId ?? DEFAULT_BRANCH_ID) === currentBranchId()) : list);
     // Comparación justa: el mismo día de la semana pasada, hasta la misma hora.
     const [today, lastWeek] = await Promise.all([salesBetween(from, to + 1), salesBetween(from - WEEK, to - WEEK)]);
-    return { today: summarizeSales(today), lastWeek: summarizeSales(lastWeek) };
-  }, [now.getTime()]);
+    return { today: summarizeSales(mine(today)), lastWeek: summarizeSales(mine(lastWeek)) };
+  }, [now.getTime(), multiBranch]);
 
   const missing = products.filter((p) => p.trackStock && stockStatus(p.stock, p.minStock) !== "ok");
+  const expiring = useExpiringLots(7);
 
   return (
     <div className="mx-auto max-w-6xl p-4 lg:p-8">
-      <PageHeader title="Hoy" subtitle={formatLongDay(now)} />
+      <PageHeader title="Hoy" subtitle={`${formatLongDay(now)}${multiBranch ? ` · ${branchName(branches, currentBranchId())}` : ""}`} />
 
       <div className={cx("grid gap-4", can("verCostos") ? "sm:grid-cols-3" : "sm:grid-cols-2")}>
         <StatTile label="Vendido" value={data ? formatMoney(data.today.total) : "…"} change={data && percentChange(data.today.total, data.lastWeek.total)} emphasis />
@@ -64,6 +74,13 @@ export function Hoy({ navigate }: { navigate: (r: Route) => void }) {
             </ul>
           )}
         </Card>
+
+        {expiring.length > 0 && (
+          <Card className="lg:col-span-2">
+            <h2 className="text-xl font-bold">Por vencer esta semana</h2>
+            <ExpiringLots days={7} limit={6} />
+          </Card>
+        )}
       </div>
     </div>
   );

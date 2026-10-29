@@ -3,7 +3,7 @@ import { createRoot } from "react-dom/client";
 import { registerSW } from "virtual:pwa-register";
 import { App } from "./App";
 import { ToastProvider } from "./components/ui";
-import { initDeviceId, requestPersistentStorage } from "./db";
+import { initBranchId, initDeviceId, requestPersistentStorage } from "./db";
 // Registra los cambios pendientes de sincronizar: tiene que cargarse antes de cualquier escritura.
 import "./sync/tracking";
 import { onSynced, startSync } from "./sync/engine";
@@ -16,6 +16,7 @@ import "./styles.css";
 if (!isDesktop()) registerSW({ immediate: true });
 void requestPersistentStorage();
 await initDeviceId();
+await initBranchId();
 // Facturas pendientes: se mandan a ARCA después de cada sincronización.
 onSynced(processInvoices);
 void startSync();

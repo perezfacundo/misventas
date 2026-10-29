@@ -1,5 +1,5 @@
 import { useLiveQuery } from "dexie-react-hooks";
-import { pesos } from "@misventas/core";
+import { DEFAULT_BRANCH_ID, pesos } from "@misventas/core";
 import { db, type BusinessSettings, type DeviceSettings, type Settings } from "../db";
 
 const DEFAULT_BUSINESS: Omit<BusinessSettings, "id"> = {
@@ -18,6 +18,7 @@ const DEFAULT_DEVICE: DeviceSettings = {
   autoPrint: false,
   paperWidth: 58,
   printer: { mode: "navegador", name: "", host: "", openDrawer: false },
+  branchId: DEFAULT_BRANCH_ID,
   onboarded: false,
 };
 

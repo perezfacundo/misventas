@@ -12,6 +12,10 @@ export const SYNC_TABLES = [
   "accountMovements",
   "purchases",
   "invoices",
+  "promotions",
+  "lots",
+  "branches",
+  "transfers",
 ] as const;
 
 export type SyncTable = (typeof SYNC_TABLES)[number];

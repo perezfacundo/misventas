@@ -13,7 +13,8 @@ export async function requestInvoice(sale: Sale, receiver: InvoiceReceiver): Pro
     status: "pendiente",
     request: {
       lines: sale.items.map((l) => ({ gross: lineTotal(l), ...(l.ivaRate !== undefined ? { ivaRate: l.ivaRate } : {}) })),
-      discount: sale.discount,
+      // Las promociones son descuentos: la factura tiene que dar el total cobrado.
+      discount: sale.discount + (sale.promotions ?? []).reduce((sum, p) => sum + p.amount, 0),
       receiver,
     },
     createdAt: now,

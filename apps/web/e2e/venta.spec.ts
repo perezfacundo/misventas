@@ -117,7 +117,10 @@ test("funciona sin internet y recupera el carrito", async ({ page, context }) =>
 
   const search = page.getByLabel("Buscar producto o escanear código");
   await search.fill("encendedor");
+  // Después de recargar sin conexión, el catálogo tarda un instante en cargarse desde la base local.
+  await expect(page.getByRole("option", { name: /Encendedor/ })).toBeVisible();
   await search.press("Enter");
+  await expect(page.getByRole("region", { name: "Productos de esta venta" })).toContainText("Encendedor");
   await page.reload(); // cierre accidental
   await expect(page.getByText("Encendedor").first()).toBeVisible();
   await cobrarEnEfectivo(page, "1200");

@@ -1,6 +1,6 @@
 import { useSyncExternalStore } from "react";
-import { PULL_LIMIT, PUSH_BATCH, SYNC_TABLES, type PulledEntity, type PushChange, type SyncTable } from "@misventas/core";
-import { db } from "../db";
+import { DEFAULT_BRANCH_ID, PULL_LIMIT, PUSH_BATCH, SYNC_TABLES, type PulledEntity, type PushChange, type SyncTable } from "@misventas/core";
+import { currentBranchId, db } from "../db";
 import { DERIVED_FIELDS, LOCAL_FIELDS, remoteTransaction, setLocalChangeListener } from "./tracking";
 
 /** Vínculo de este dispositivo con la cuenta del comercio en el servidor. */
@@ -243,8 +243,9 @@ export async function applyRemote(changes: PulledEntity[], cursor: number): Prom
     // El stock es la suma de los movimientos: se recalcula para los productos que recibieron movimientos.
     for (const productId of affected) {
       let stock = 0;
+      const branch = currentBranchId();
       await db.stockMovements.where("productId").equals(productId).each((m) => {
-        stock += m.delta;
+        if ((m.branchId ?? DEFAULT_BRANCH_ID) === branch) stock += m.delta;
       });
       await db.products.update(productId, { stock });
     }

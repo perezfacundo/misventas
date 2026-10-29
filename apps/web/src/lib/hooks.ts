@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useState } from "react";
 import { emptyCart, type Cart } from "@misventas/core";
 
-export type Route = "vender" | "hoy" | "productos" | "caja" | "ventas" | "clientes" | "proveedores" | "reportes" | "ajustes";
-const ROUTES: Route[] = ["vender", "hoy", "productos", "caja", "ventas", "clientes", "proveedores", "reportes", "ajustes"];
+export type Route = "vender" | "hoy" | "productos" | "caja" | "ventas" | "clientes" | "proveedores" | "promociones" | "reportes" | "ajustes";
+const ROUTES: Route[] = ["vender", "hoy", "productos", "caja", "ventas", "clientes", "proveedores", "promociones", "reportes", "ajustes"];
 
 const readHash = (): Route => {
   const r = window.location.hash.replace(/^#\/?/, "") as Route;

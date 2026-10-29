@@ -1,6 +1,6 @@
 import { useLiveQuery } from "dexie-react-hooks";
-import { adjustmentDelta, movementDelta, uuidv7, type Cents, type StockMovementType } from "@misventas/core";
-import { db, type Product } from "../db";
+import { adjustmentDelta, DEFAULT_BRANCH_ID, movementDelta, uuidv7, type Cents, type StockMovementType } from "@misventas/core";
+import { currentBranchId, db, type Product } from "../db";
 
 const EMPTY: Product[] = [];
 
@@ -47,7 +47,7 @@ export async function recordMovement(
   const delta = extra.delta ?? movementDelta(type, quantity);
   if (delta === 0) return;
   const now = Date.now();
-  await db.stockMovements.add({ id: uuidv7(), productId, delta, type, refId: extra.refId, note: extra.note, createdAt: now });
+  await db.stockMovements.add({ id: uuidv7(), productId, delta, type, refId: extra.refId, note: extra.note, branchId: currentBranchId(), createdAt: now });
   // Solo la proyección local: el stock no se sincroniza, se sincronizan los movimientos.
   await db.products.where("id").equals(productId).modify((p) => {
     p.stock += delta;
@@ -81,7 +81,11 @@ export async function bulkUpdatePrices(changes: { id: string; price: Cents; cost
 export async function recomputeAllStock(): Promise<number> {
   return db.transaction("rw", db.products, db.stockMovements, async () => {
     const totals = new Map<string, number>();
-    await db.stockMovements.each((m) => totals.set(m.productId, (totals.get(m.productId) ?? 0) + m.delta));
+    // El stock que ve cada dispositivo es el de su sucursal.
+    const branch = currentBranchId();
+    await db.stockMovements.each((m) => {
+      if ((m.branchId ?? DEFAULT_BRANCH_ID) === branch) totals.set(m.productId, (totals.get(m.productId) ?? 0) + m.delta);
+    });
     let fixed = 0;
     await db.products.toCollection().modify((p) => {
       const real = totals.get(p.id) ?? 0;

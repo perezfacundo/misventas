@@ -5,11 +5,13 @@ import type { Product, Supplier } from "../db";
 import { registerPurchase } from "../data/suppliers";
 import { Button, cx, EmptyState, Field, inputClass, MoneyInput, Modal, TextInput, Toggle, useToast } from "./ui";
 import { useSession } from "./Session";
+import { plural } from "../lib/format";
 
 interface Line {
   product: Product;
   quantity: string;
   cost: Cents | null;
+  expiresAt: string;
 }
 
 /** Ingreso de mercadería: se escanea cada producto que llegó y se suma al stock. */
@@ -46,7 +48,7 @@ export function PurchaseDialog({
     setLines((ls) => {
       const i = ls.findIndex((l) => l.product.id === p.id);
       if (i >= 0) return ls.map((l, j) => (j === i ? { ...l, quantity: String(Number(l.quantity || 0) + 1) } : l));
-      return [{ product: p, quantity: "1", cost: p.cost }, ...ls];
+      return [{ product: p, quantity: "1", cost: p.cost, expiresAt: "" }, ...ls];
     });
     if (!supplierId && p.supplierId) setSupplierId(p.supplierId);
     setQuery("");
@@ -60,6 +62,7 @@ export function PurchaseDialog({
   };
 
   const valid = lines.filter((l) => Number(l.quantity) > 0);
+  const missingExpiry = valid.some((l) => l.product.tracksExpiry && !l.expiresAt);
   const total = valid.reduce((s, l) => s + (l.cost ?? 0) * Math.round(Number(l.quantity)), 0);
 
   const confirm = async () => {
@@ -75,10 +78,11 @@ export function PurchaseDialog({
           quantity: Math.round(Number(l.quantity)),
           cost: l.cost,
           costChanged: l.cost !== l.product.cost,
+          expiresAt: l.product.tracksExpiry && l.expiresAt ? l.expiresAt : undefined,
         })),
       });
       const units = valid.reduce((s, l) => s + Math.round(Number(l.quantity)), 0);
-      toast({ tone: "ok", message: `Ingresaste ${units} unidades de ${valid.length} productos` });
+      toast({ tone: "ok", message: `Ingresaste ${plural(units, "unidad", "unidades")} de ${plural(valid.length, "producto", "productos")}` });
       onClose();
     } catch (e) {
       toast({ tone: "error", message: e instanceof Error ? e.message : "No se pudo registrar." });
@@ -97,7 +101,8 @@ export function PurchaseDialog({
         <>
           {showCosts && total > 0 && <p className="num mr-auto text-lg">Total <b>{formatMoney(total)}</b></p>}
           <Button onClick={onClose}>Cancelar</Button>
-          <Button variant="primary" onClick={confirm} disabled={!valid.length}>Sumar al stock</Button>
+          {missingExpiry && <p className="w-full font-semibold text-warn">Cargá el vencimiento de los productos que lo controlan.</p>}
+          <Button variant="primary" onClick={confirm} disabled={!valid.length || missingExpiry}>Sumar al stock</Button>
         </>
       }
     >
@@ -147,38 +152,39 @@ export function PurchaseDialog({
         {lines.length === 0 ? (
           <EmptyState icon={<PackagePlus />} title="Todavía no agregaste nada">Escaneá cada producto que trajo el proveedor.</EmptyState>
         ) : (
-          <table className="w-full text-left">
-            <thead className="text-sm text-muted">
-              <tr>
-                <th className="py-2 font-semibold">Producto</th>
-                <th className="w-24 py-2 font-semibold">Cantidad</th>
-                {showCosts && <th className="w-40 py-2 font-semibold">Costo unitario</th>}
-                <th className="w-12"><span className="sr-only">Quitar</span></th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-line">
-              {lines.map((l, i) => (
-                <tr key={l.product.id}>
-                  <td className="py-2 pr-2 text-lg font-semibold">{l.product.name}</td>
-                  <td className="py-2 pr-2">
+          <ul className="divide-y divide-line rounded-xl border border-line">
+            {lines.map((l, i) => (
+              <li key={l.product.id} className="flex flex-col gap-2 px-4 py-3">
+                <div className="flex items-center justify-between gap-3">
+                  <span className="text-lg font-semibold">{l.product.name}</span>
+                  <button type="button" onClick={() => setLines((ls) => ls.filter((_, j) => j !== i))} className="rounded-lg p-2 text-muted hover:text-danger" aria-label={`Quitar ${l.product.name}`}>
+                    <Trash2 className="size-5" />
+                  </button>
+                </div>
+                <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
+                  <label className="flex flex-col gap-1">
+                    <span className="text-sm font-semibold text-muted">Cantidad</span>
                     <TextInput inputMode="numeric" value={l.quantity} aria-label={`Cantidad de ${l.product.name}`}
                       onChange={(e) => setLines((ls) => ls.map((x, j) => (j === i ? { ...x, quantity: e.target.value } : x)))} />
-                  </td>
+                  </label>
                   {showCosts && (
-                    <td className="py-2 pr-2">
+                    <label className="flex flex-col gap-1">
+                      <span className="text-sm font-semibold text-muted">Costo unitario</span>
                       <MoneyInput value={l.cost} aria-label={`Costo de ${l.product.name}`}
                         onChange={(cost) => setLines((ls) => ls.map((x, j) => (j === i ? { ...x, cost } : x)))} />
-                    </td>
+                    </label>
                   )}
-                  <td>
-                    <button type="button" onClick={() => setLines((ls) => ls.filter((_, j) => j !== i))} className="rounded-lg p-2 text-muted hover:text-danger" aria-label={`Quitar ${l.product.name}`}>
-                      <Trash2 className="size-5" />
-                    </button>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+                  {l.product.tracksExpiry && (
+                    <label className="col-span-2 flex flex-col gap-1 sm:col-span-1">
+                      <span className="text-sm font-semibold text-muted">Vence</span>
+                      <TextInput type="date" value={l.expiresAt} aria-label={`Vencimiento de ${l.product.name}`}
+                        onChange={(e) => setLines((ls) => ls.map((x, j) => (j === i ? { ...x, expiresAt: e.target.value } : x)))} />
+                    </label>
+                  )}
+                </div>
+              </li>
+            ))}
+          </ul>
         )}
       </div>
     </Modal>

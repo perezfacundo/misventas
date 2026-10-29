@@ -6,6 +6,8 @@ import { estimatedProfit } from "./cart.ts";
 export interface SaleLike {
   total: Cents;
   discount: Cents;
+  /** Promociones aplicadas (descuentos automáticos). */
+  promotions?: readonly { amount: Cents }[];
   items: readonly CartLine[];
   payments: readonly Payment[];
   status: "completada" | "anulada";
@@ -25,7 +27,7 @@ export function summarizeSales(sales: readonly SaleLike[]): SalesSummary {
     if (sale.status !== "completada") continue;
     summary.total += sale.total;
     summary.count += 1;
-    summary.profit += estimatedProfit(sale.items, sale.discount);
+    summary.profit += estimatedProfit(sale.items, sale.discount + (sale.promotions ?? []).reduce((s, p) => s + p.amount, 0));
     for (const p of sale.payments) {
       summary.byMethod[p.method] = (summary.byMethod[p.method] ?? 0) + p.amount;
     }

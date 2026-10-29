@@ -1,9 +1,9 @@
 import Dexie, { type EntityTable, type Transaction } from "dexie";
 import type {
-  AccountMovementType, Cart, CartLine, Cents, CashMovementType, InvoiceAmounts, IssuerCondition, Payment, PaymentMethod, Role,
-  StockMovementType,
+  AccountMovementType, AppliedPromotion, Cart, CartLine, Cents, CashMovementType, InvoiceAmounts, IssuerCondition, LotLike, Payment,
+  PaymentMethod, Promotion, Role, StockMovementType,
 } from "@misventas/core";
-import { uuidv7 } from "@misventas/core";
+import { DEFAULT_BRANCH_ID, uuidv7 } from "@misventas/core";
 
 /**
  * Campos de control de sincronización, solo locales (nunca se envían):
@@ -32,6 +32,8 @@ export interface Product extends SyncFields {
   favorite: boolean;
   /** Alícuota de IVA (solo importa si el comercio es responsable inscripto). Sin dato: 21%. */
   ivaRate?: number;
+  /** Se cargan los vencimientos de cada lote al ingresar mercadería. */
+  tracksExpiry?: boolean;
   active: boolean;
   createdAt: number;
   updatedAt: number;
@@ -45,6 +47,8 @@ export interface StockMovement extends SyncFields {
   /** Venta o compra que lo originó. */
   refId?: string;
   note?: string;
+  /** Sucursal donde ocurrió (sin dato: la principal). */
+  branchId?: string;
   createdAt: number;
 }
 
@@ -60,6 +64,10 @@ export interface Sale extends SyncFields {
   cashier: string;
   /** Cliente al que se le fió (si hubo fiado). */
   customerId?: string;
+  /** Sucursal (sin dato: la principal). */
+  branchId?: string;
+  /** Promociones aplicadas: forman parte del total cobrado. */
+  promotions?: AppliedPromotion[];
   /** Copia de nombre y precio al momento de vender: los cambios de precio no alteran el historial. */
   items: CartLine[];
   subtotal: Cents;
@@ -162,6 +170,7 @@ export interface Purchase extends SyncFields {
   total: Cents;
   paidFromCash: boolean;
   note?: string;
+  branchId?: string;
   createdAt: number;
   userName: string;
 }
@@ -265,10 +274,56 @@ export interface DeviceSettings {
   autoPrint: boolean;
   paperWidth: 58 | 80;
   printer: PrinterConfig;
+  /** Sucursal en la que está este dispositivo. */
+  branchId: string;
   onboarded: boolean;
 }
 
 export type Settings = Omit<BusinessSettings, "id" | keyof SyncFields> & DeviceSettings;
+
+export interface PromotionRecord extends Promotion, SyncFields {
+  createdAt: number;
+  updatedAt: number;
+  /** Borrado lógico: deja de aplicarse y no se lista. */
+  deleted?: boolean;
+}
+
+export interface Lot extends LotLike, SyncFields {
+  branchId: string;
+  purchaseId?: string;
+  createdAt: number;
+}
+
+export interface Branch extends SyncFields {
+  id: string;
+  name: string;
+  address: string;
+  active: boolean;
+  createdAt: number;
+  updatedAt: number;
+}
+
+export interface TransferItem {
+  productId: string;
+  name: string;
+  quantity: number;
+  /** Lo que efectivamente llegó (se completa al recibir). */
+  received?: number;
+}
+
+/** Envío de mercadería entre sucursales: sale del stock al enviarlo y entra al recibirlo. */
+export interface Transfer extends SyncFields {
+  id: string;
+  fromBranchId: string;
+  toBranchId: string;
+  items: TransferItem[];
+  status: "enviada" | "recibida" | "cancelada";
+  note?: string;
+  createdAt: number;
+  sentBy: string;
+  receivedAt?: number;
+  receivedBy?: string;
+}
 
 export interface Meta {
   key: string;
@@ -290,6 +345,10 @@ export const db = new Dexie("misventas") as Dexie & {
   purchases: EntityTable<Purchase, "id">;
   business: EntityTable<BusinessSettings, "id">;
   invoices: EntityTable<InvoiceRecord, "id">;
+  promotions: EntityTable<PromotionRecord, "id">;
+  lots: EntityTable<Lot, "id">;
+  branches: EntityTable<Branch, "id">;
+  transfers: EntityTable<Transfer, "id">;
 };
 
 db.version(1).stores({
@@ -324,6 +383,16 @@ db.version(3).stores({
   invoices: "id, saleId, status, kind, createdAt, _dirty",
 });
 
+// Fase 5: promociones, vencimientos y sucursales. Lo existente no se migra: sin sucursal = la principal.
+db.version(4).stores({
+  stockMovements: "id, productId, createdAt, type, refId, branchId, _dirty",
+  sales: "id, number, createdAt, cashSessionId, status, customerId, branchId, _dirty",
+  promotions: "id, _dirty",
+  lots: "id, productId, expiresAt, branchId, _dirty",
+  branches: "id, _dirty",
+  transfers: "id, status, toBranchId, fromBranchId, createdAt, _dirty",
+});
+
 /** Migración de la Fase 1: comercio compartido, usuarios, proveedores como entidad y dispositivo. */
 async function migrateToV2(tx: Transaction): Promise<void> {
   const now = Date.now();
@@ -348,6 +417,7 @@ async function migrateToV2(tx: Transaction): Promise<void> {
     autoPrint: (old.autoPrint as boolean) ?? false,
     paperWidth: (old.paperWidth as 58 | 80) ?? 58,
     printer: { mode: "navegador", name: "", host: "", openDrawer: false },
+    branchId: DEFAULT_BRANCH_ID,
     onboarded: (old.onboarded as boolean) ?? false,
   };
   await tx.table("meta").put({ key: "settings", value: device });
@@ -401,6 +471,22 @@ export async function initDeviceId(): Promise<string> {
 /** Id local de este dispositivo (distinto del id que le asigna el servidor al vincularlo). */
 export async function getDeviceId(): Promise<string> {
   return deviceId ?? initDeviceId();
+}
+
+let branchId = DEFAULT_BRANCH_ID;
+
+/** Sucursal de este dispositivo, en memoria para usarla sin esperar (se carga al arrancar). */
+export const currentBranchId = () => branchId;
+
+export async function initBranchId(): Promise<string> {
+  const settings = (await db.meta.get("settings"))?.value as Partial<DeviceSettings> | undefined;
+  branchId = settings?.branchId ?? DEFAULT_BRANCH_ID;
+  return branchId;
+}
+
+/** Solo para el cambio de sucursal desde Ajustes. */
+export function setCurrentBranchId(id: string): void {
+  branchId = id;
 }
 
 /** Pide al navegador que no borre los datos locales cuando falte espacio. */

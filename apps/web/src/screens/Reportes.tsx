@@ -13,6 +13,8 @@ import { formatDate, formatDateTime, plural } from "../lib/format";
 import { Button, Card, PageHeader, Segmented } from "../components/ui";
 import { BarList, DayBars } from "../components/charts";
 import { useSession } from "../components/Session";
+import { hasMultipleBranches, useBranches } from "../data/branches";
+import { DEFAULT_BRANCH_ID } from "@misventas/core";
 
 type Period = "hoy" | "7d" | "30d" | "mes" | "mesPasado";
 
@@ -44,7 +46,10 @@ export function Reportes() {
   const range = rangeOf(period);
   const products = useProducts();
   const movements = useAccountMovements();
-  const sales = useLiveQuery(() => salesBetween(range.from, range.to), [range.from, range.to], []);
+  const branches = useBranches();
+  const [branch, setBranch] = useState<string>("todas");
+  const all = useLiveQuery(() => salesBetween(range.from, range.to), [range.from, range.to], []);
+  const sales = useMemo(() => (branch === "todas" ? all : all.filter((s) => (s.branchId ?? DEFAULT_BRANCH_ID) === branch)), [all, branch]);
   const reportSales: ReportSale[] = useMemo(() => sales.map((s) => ({ ...s, userName: s.cashier })), [sales]);
 
   const summary = summarizeSales(sales);
@@ -70,7 +75,7 @@ export function Reportes() {
     <div className="mx-auto max-w-6xl p-4 lg:p-8">
       <PageHeader
         title="Reportes"
-        subtitle={`Ventas de ${range.label}, de todas las cajas`}
+        subtitle={`Ventas de ${range.label}, ${branch === "todas" ? "de todas las cajas" : `de ${branches.find((b) => b.id === branch)?.name ?? "la sucursal"}`}`}
         actions={<Button onClick={exportCsv} disabled={!sales.length}><Download className="size-5" /> Exportar ventas</Button>}
       />
       <div className="mb-6">
@@ -86,6 +91,12 @@ export function Reportes() {
             { value: "mesPasado", label: "Mes pasado" },
           ]}
         />
+        {hasMultipleBranches(branches) && (
+          <div className="mt-3">
+            <Segmented label="Sucursal" value={branch} onChange={setBranch}
+              options={[{ value: "todas", label: "Todas las sucursales" }, ...branches.map((b) => ({ value: b.id, label: b.name }))]} />
+          </div>
+        )}
       </div>
 
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">

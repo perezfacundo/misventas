@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useLiveQuery } from "dexie-react-hooks";
 import { CheckCircle2, Minus, Pause, Percent, Play, Plus, Printer, ScanBarcode, Search, Trash2 } from "lucide-react";
 import {
-  addMisc, addProduct, cartSubtotal, cartTotal, emptyCart, findByCode, formatMoney, itemCount,
+  addMisc, addProduct, applyPromotions, cartSubtotal, cartTotal, emptyCart, findByCode, formatMoney, itemCount,
   lineTotal, PAYMENT_LABELS, removeLine, searchProducts, setDiscount, setQuantity,
   uuidv7, type Cart, type Cents, type Payment,
 } from "@misventas/core";
@@ -10,7 +10,8 @@ import { db, type InvoiceReceiver, type IssuedInvoice, type Product, type Sale, 
 import { useProducts } from "../data/products";
 import { useOpenSession } from "../data/cash";
 import { completeSale } from "../data/sales";
-import { isTypingTarget, useHotkeys, usePersistentCart } from "../lib/hooks";
+import { isTypingTarget, useHotkeys, useNow, usePersistentCart } from "../lib/hooks";
+import { usePromotions } from "../data/promotions";
 import { formatTime, plural } from "../lib/format";
 import { Button, cx, EmptyState, Field, Kbd, MoneyInput, Modal, StockBadge, TextInput, useToast } from "../components/ui";
 import { CobroDialog } from "../components/CobroDialog";
@@ -53,7 +54,16 @@ export function Vender({ settings }: { settings: Settings }) {
   const { qty, text } = parseQuery(query);
   const results = useMemo(() => searchProducts(products, text, 8), [products, text]);
   const favorites = useMemo(() => products.filter((p) => p.favorite).slice(0, 15), [products]);
-  const total = cartTotal(cart);
+  // Promociones: se recalculan con cada cambio del carrito (y cada minuto, por las que tienen horario).
+  const promotions = usePromotions();
+  const now = useNow(60_000);
+  const categoryOf = useMemo(() => {
+    const map = new Map(products.map((p) => [p.id, p.category]));
+    return (id: string) => map.get(id);
+  }, [products]);
+  const applied = useMemo(() => applyPromotions(cart.lines, promotions, now, categoryOf), [cart.lines, promotions, now, categoryOf]);
+  const cartView = useMemo(() => ({ ...cart, promotions: applied }), [cart, applied]);
+  const total = cartTotal(cartView);
 
   useEffect(() => setSelected(0), [text]);
 
@@ -91,7 +101,7 @@ export function Vender({ settings }: { settings: Settings }) {
 
   const finishSale = async (payments: Payment[], change: Cents, customerId?: string, invoiceReceiver?: InvoiceReceiver | null) => {
     try {
-      const sale = await completeSale(cart, payments, change, { user, customerId });
+      const sale = await completeSale(cartView, payments, change, { user, customerId });
       forgetCharge();
       setResume(null);
       setCart(emptyCart());
@@ -316,10 +326,16 @@ export function Vender({ settings }: { settings: Settings }) {
               </div>
               <p className="text-lg text-muted lg:mt-2">{plural(itemCount(cart), "producto", "productos")}</p>
             </div>
-            {cart.discount > 0 && (
-              <p className="num mt-2 text-lg text-muted">
-                Subtotal {formatMoney(cartSubtotal(cart))} · Descuento <b className="text-ink">−{formatMoney(cart.discount)}</b>
-              </p>
+            {(cart.discount > 0 || applied.length > 0) && (
+              <div className="num mt-2 flex flex-col gap-0.5 text-lg text-muted">
+                <p>Subtotal {formatMoney(cartSubtotal(cart))}</p>
+                {applied.map((a) => (
+                  <p key={a.promotionId} className="font-semibold text-brand">
+                    {a.name}{a.times > 1 ? ` ×${a.times}` : ""} −{formatMoney(a.amount)}
+                  </p>
+                ))}
+                {cart.discount > 0 && <p>Descuento <b className="text-ink">−{formatMoney(cart.discount)}</b></p>}
+              </div>
             )}
             <div className="mt-4 hidden flex-wrap gap-2 sm:flex lg:mt-6">
               {can("descontar") && <Button onClick={() => setDialog("descuento")}><Percent className="size-5" /> Descuento</Button>}
@@ -369,9 +385,9 @@ export function Vender({ settings }: { settings: Settings }) {
       />
       <DiscountDialog
         open={dialog === "descuento"}
-        cart={cart}
+        cart={cartView}
         onClose={() => setDialog(null)}
-        onApply={(d) => { setCart(setDiscount(cart, d)); setDialog(null); }}
+        onApply={(d) => { setCart({ ...cart, discount: setDiscount(cartView, d).discount }); setDialog(null); }}
       />
     </div>
   );
@@ -432,7 +448,8 @@ function DiscountDialog({ open, cart, onClose, onApply }: { open: boolean; cart:
   const [mode, setMode] = useState<"monto" | "porcentaje">("porcentaje");
   const [text, setText] = useState("");
   const [amount, setAmount] = useState<Cents | null>(null);
-  const subtotal = cartSubtotal(cart);
+  // El descuento se aplica sobre lo que queda después de las promociones.
+  const subtotal = cartSubtotal(cart) - (cart.promotions ?? []).reduce((sum, p) => sum + p.amount, 0);
   useEffect(() => {
     if (open) { setText(""); setAmount(cart.discount || null); }
   }, [open, cart.discount]);

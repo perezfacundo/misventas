@@ -1,7 +1,8 @@
 import { useLiveQuery } from "dexie-react-hooks";
 import { uuidv7, type Cents } from "@misventas/core";
-import { db, type Purchase, type Supplier } from "../db";
+import { currentBranchId, db, type Purchase, type Supplier } from "../db";
 import { recordMovement } from "./products";
+import { addLot } from "./lots";
 import { addCashMovement, getOpenSession } from "./cash";
 
 const EMPTY: Supplier[] = [];
@@ -42,6 +43,8 @@ export interface PurchaseLine {
   /** Nuevo costo unitario, si cambió. */
   cost: Cents | null;
   costChanged: boolean;
+  /** Vencimiento del lote (AAAA-MM-DD), para productos que lo controlan. */
+  expiresAt?: string;
 }
 
 /** Ingreso de mercadería: suma stock, actualiza costos y, si se pagó de la caja, registra el retiro. */
@@ -61,11 +64,12 @@ export async function registerPurchase(input: {
     createdAt: Date.now(),
     userName: input.userName,
   };
-  await db.transaction("rw", [db.products, db.stockMovements, db.purchases, db.cashSessions, db.cashMovements, db.suppliers, db.meta], async () => {
-    await db.purchases.add(purchase);
+  await db.transaction("rw", [db.products, db.stockMovements, db.purchases, db.cashSessions, db.cashMovements, db.suppliers, db.meta, db.lots], async () => {
+    await db.purchases.add({ ...purchase, branchId: currentBranchId() });
     for (const line of input.lines) {
       if (line.costChanged) await db.products.update(line.productId, { cost: line.cost, updatedAt: Date.now() });
       await recordMovement(line.productId, "compra", line.quantity, { refId: purchase.id });
+      if (line.expiresAt) await addLot({ productId: line.productId, expiresAt: line.expiresAt, quantity: line.quantity, purchaseId: purchase.id });
     }
     if (input.paidFromCash && total > 0) {
       const session = await getOpenSession();

@@ -38,7 +38,21 @@ Corre en el navegador (PC, tablet o celular) y se instala como app (PWA) para us
 - **Ticket fiscal:** datos del emisor, comprador, CAE, vencimiento del CAE y QR (RG 4892). La B lleva la leyenda del Régimen de Transparencia Fiscal (Ley 27.743) y la A discrimina el IVA. Funciona en la ventana de impresión y en ESC/POS.
 - **Certificado:** la clave privada se genera y queda cifrada en el servidor. El dueño solo descarga el pedido (CSR) y sube el certificado que le da ARCA.
 
-Lo que sigue (Fase 5: extras) está en el documento de planificación.
+**Fase 5 (extras):**
+- **Promociones automáticas:**
+  - Tipos: "lleve N, pague M" (2×1, 3×2, con productos mezclados), combos a precio fijo y descuentos por porcentaje por producto o categoría.
+  - Vigencia: por fechas, días de la semana y horario, incluso cruzando la medianoche.
+  - Se aplican solas al vender y quedan guardadas en la venta. Ticket, reportes, ganancia y factura cierran con lo cobrado.
+- **Vencimientos por lote:**
+  - En los productos que lo controlan, el ingreso de mercadería pide la fecha de vencimiento.
+  - "Por vencer" en Productos y en Hoy, con la baja de lo vencido como merma.
+- **Sucursales:**
+  - Cada local tiene su stock y sus cajas; productos y precios son compartidos.
+  - Envíos entre sucursales: salen al enviar y entran al recibir, con la cantidad real que llegó. Se pueden cancelar antes de recibirlos.
+  - Reportes por sucursal.
+  - Todo queda oculto mientras haya una sola.
+
+Cómo sigue el proyecto está en el documento de planificación.
 
 ## Estructura
 
@@ -151,6 +165,37 @@ En **Ajustes → Factura electrónica (ARCA)**, paso a paso:
 - **Versión de prueba (`DEMO_MODE=1`):** solo se permite homologación.
 
 Los tests usan un ARCA falso (`apps/server/test/fake-arca.ts`) que valida numeración, sumas, campos obligatorios, el orden del WSDL y la firma CMS del pedido de acceso. **El circuito contra el ARCA real se prueba en homologación con tu CUIT:** desde acá no se puede.
+
+## Decisiones de la Fase 5
+
+- **Promociones:**
+  - Cada unidad entra en una sola promoción, en orden fijo: combos (solo si le convienen al cliente), después N×M (se bonifican las más baratas de cada grupo) y al final los porcentajes.
+  - Se calculan en el dispositivo con cada cambio del carrito: funcionan sin internet.
+- **Vencimientos:**
+  - No se registra de qué lote sale cada unidad vendida, porque sería lento en el mostrador. Se asume que se vende primero lo que vence antes (FEFO): el stock actual se asigna a los lotes que vencen más tarde.
+  - Con eso se estima cuánto queda de cada lote. La baja es por conteo real.
+- **Sucursales:**
+  - Los movimientos de stock llevan sucursal. Lo que no la tiene (lo anterior a esta fase) cuenta como "principal", que tiene un id fijo para que no se duplique entre dispositivos.
+  - Cada dispositivo calcula el stock de su sucursal.
+  - Si una caja cancela un envío sin conexión mientras la otra lo recibe, el stock queda contado dos veces. Se corrige con un conteo.
+
+## Evaluación del CAEA (contingencia de ARCA)
+
+El CAEA es un código que se pide por adelantado a ARCA para facturar cuando el servicio en línea (CAE) no responde.
+
+**Qué dice la normativa:**
+- **Uso restringido:** desde la RG 5782/2025 (con la prórroga de la RG 5852/2026, desde el 1/8/2026), el CAEA queda reservado para fallas técnicas reales que impidan obtener el CAE, y es la primera opción en ese caso.
+- **Pedido:** se pide uno por quincena (1 al 15 y 16 a fin de mes), hasta 5 días antes o durante el período.
+- **Informe:** los comprobantes emitidos con CAEA se informan, con fecha y hora de generación, desde el día siguiente al inicio del período y hasta 8 días corridos después de su fin. Sin ese informe, ARCA puede negar el siguiente CAEA.
+- **Punto de venta:** los puntos de venta CAEA funcionan como modo contingencia y tienen que estar asociados a un domicilio.
+
+**Qué implicaría en Mis Ventas:**
+- **Servidor:** una tarea que pida el CAEA de cada comercio todas las quincenas, aunque nunca se use.
+- **Cajas:** repartirles a las que están sin conexión el código y rangos de numeración propios, para que no choquen.
+- **Ticket:** imprimir el comprobante con `tipoCodAut: "A"`.
+- **Informes:** informar cada comprobante a ARCA (`FECAEARegInformativo`) dentro de plazo, y también los períodos sin uso.
+
+**Recomendación: no implementarlo por ahora.** Para la mayoría de los kioscos (monotributistas, tickets chicos), el costo y el riesgo de cumplir cada quincena superan el beneficio. Hoy, si ARCA no responde, la venta se registra igual y la factura sale sola con CAE al volver el servicio. **Que el contador confirme si eso alcanza para su volumen.** Si un comercio necesita contingencia formal (por ejemplo, un responsable inscripto con mucha facturación a empresas), el CAEA se puede sumar como módulo opcional por comercio, sobre lo que ya existe: cola de pendientes, numeración serializada y ARCA falso para tests.
 
 ## App de escritorio
 

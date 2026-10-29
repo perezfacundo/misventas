@@ -11,3 +11,5 @@ export * from "./permissions.ts";
 export * from "./account.ts";
 export * from "./sync.ts";
 export * from "./fiscal.ts";
+export * from "./promotions.ts";
+export * from "./lots.ts";

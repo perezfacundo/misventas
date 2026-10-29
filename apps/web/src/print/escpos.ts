@@ -199,6 +199,7 @@ export function ticketBytes(sale: Sale, settings: Settings, opts: TicketOptions 
     b.line(twoColumns(`  ${item.quantity} x ${formatMoney(item.unitPrice)}`, formatMoney(lineTotal(item)), width));
   }
   b.line(dashed);
+  for (const promo of sale.promotions ?? []) b.line(twoColumns(promo.name, `-${formatMoney(promo.amount)}`, width));
   if (sale.discount > 0) b.line(twoColumns("Descuento", `-${formatMoney(sale.discount)}`, width));
 
   // Total en doble alto (mismo ancho de columnas) para que se lea de lejos.

@@ -4,6 +4,8 @@ import { formatMoney, IVA_RATES, markupPercent, type Cents } from "@misventas/co
 import { useSettings } from "../data/settings";
 import type { Product, Supplier } from "../db";
 import { findOrCreateSupplier } from "../data/suppliers";
+import { branchName, hasMultipleBranches, useBranches, useStockByBranch } from "../data/branches";
+import { currentBranchId } from "../db";
 import { adjustStockTo, archiveProduct, catalogOptions, createProduct, recordLoss, updateProduct, type ProductInput } from "../data/products";
 import { Button, Field, inputClass, MoneyInput, Modal, StockBadge, TextInput, Toggle, useToast } from "./ui";
 
@@ -21,6 +23,7 @@ interface Draft {
   favorite: boolean;
   trackStock: boolean;
   ivaRate: number;
+  tracksExpiry: boolean;
 }
 
 const fromProduct = (p: Product | null, suppliers: Supplier[], barcode?: string): Draft => ({
@@ -37,6 +40,7 @@ const fromProduct = (p: Product | null, suppliers: Supplier[], barcode?: string)
   favorite: p?.favorite ?? false,
   trackStock: p?.trackStock ?? true,
   ivaRate: p?.ivaRate ?? 21,
+  tracksExpiry: p?.tracksExpiry ?? false,
 });
 
 const toInt = (s: string) => {
@@ -100,6 +104,7 @@ export function ProductForm({
       favorite: d.favorite,
       trackStock: d.trackStock,
       ivaRate: d.ivaRate,
+      tracksExpiry: d.trackStock && d.tracksExpiry,
     };
     if (product) {
       await updateProduct(product.id, input);
@@ -213,6 +218,9 @@ export function ProductForm({
         <div className="flex flex-col gap-2 sm:col-span-2">
           <Toggle checked={d.favorite} onChange={(v) => set("favorite", v)} label="Mostrar en favoritos" hint="Aparece como botón en la pantalla de venta." />
           <Toggle checked={d.trackStock} onChange={(v) => set("trackStock", v)} label="Controlar stock" hint="Apagalo para cosas que no se cuentan, como un café o una carga virtual." />
+          {d.trackStock && (
+            <Toggle checked={d.tracksExpiry} onChange={(v) => set("tracksExpiry", v)} label="Controlar vencimientos" hint="Al ingresar mercadería se carga la fecha de vencimiento y te avisa antes de que venza." />
+          )}
         </div>
 
         {product && product.trackStock && <StockActions product={product} />}
@@ -225,6 +233,9 @@ export function ProductForm({
 }
 
 function StockActions({ product }: { product: Product }) {
+  const branches = useBranches();
+  const byBranch = useStockByBranch(product.id);
+  const others = hasMultipleBranches(branches) ? branches.filter((b) => b.id !== currentBranchId()) : [];
   const [counted, setCounted] = useState("");
   const [loss, setLoss] = useState("");
   const toast = useToast();
@@ -233,6 +244,9 @@ function StockActions({ product }: { product: Product }) {
       <p className="mb-3 flex items-center gap-3 font-semibold">
         Stock actual <StockBadge stock={product.stock} minStock={product.minStock} trackStock />
       </p>
+      {others.length > 0 && (
+        <p className="-mt-1 mb-3 text-muted">En otras sucursales: {others.map((b) => `${branchName(branches, b.id)} ${byBranch.get(b.id) ?? 0}`).join(" · ")}</p>
+      )}
       <div className="grid gap-3 sm:grid-cols-2">
         <div className="flex items-end gap-2">
           <Field label="Conté y hay">

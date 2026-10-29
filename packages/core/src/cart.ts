@@ -16,8 +16,10 @@ export interface CartLine {
 
 export interface Cart {
   lines: CartLine[];
-  /** Descuento sobre el total, en centavos. */
+  /** Descuento manual sobre el total, en centavos. */
   discount: Cents;
+  /** Promociones aplicadas (se recalculan con cada cambio del carrito). */
+  promotions?: { promotionId: string; name: string; amount: Cents; times: number }[];
 }
 
 export interface SellableProduct {
@@ -35,8 +37,10 @@ export const lineTotal = (line: CartLine): Cents => line.unitPrice * line.quanti
 export const cartSubtotal = (cart: Cart): Cents =>
   cart.lines.reduce((sum, l) => sum + lineTotal(l), 0);
 
+export const promotionsDiscount = (cart: Cart): Cents => (cart.promotions ?? []).reduce((s, p) => s + p.amount, 0);
+
 export const cartTotal = (cart: Cart): Cents =>
-  Math.max(0, cartSubtotal(cart) - cart.discount);
+  Math.max(0, cartSubtotal(cart) - promotionsDiscount(cart) - cart.discount);
 
 export const itemCount = (cart: Cart): number =>
   cart.lines.reduce((sum, l) => sum + l.quantity, 0);
@@ -86,7 +90,7 @@ export function removeLine(cart: Cart, lineId: string): Cart {
 }
 
 export function setDiscount(cart: Cart, discount: Cents): Cart {
-  return { ...cart, discount: Math.min(Math.max(0, discount), cartSubtotal(cart)) };
+  return { ...cart, discount: Math.min(Math.max(0, discount), cartSubtotal(cart) - promotionsDiscount(cart)) };
 }
 
 /** Ganancia estimada: solo cuenta las líneas con costo conocido, y descuenta el descuento. */

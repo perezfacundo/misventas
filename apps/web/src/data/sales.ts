@@ -1,5 +1,5 @@
 import { cartSubtotal, cartTotal, formatReceiptNumber, uuidv7, type Cart, type Cents, type Payment } from "@misventas/core";
-import { db, getDeviceId, type Sale, type User } from "../db";
+import { currentBranchId, db, getDeviceId, type Sale, type User } from "../db";
 import { getSettings, nextReceiptNumber } from "./settings";
 import { recordMovement } from "./products";
 import { getOpenSession } from "./cash";
@@ -31,6 +31,8 @@ export async function completeSale(
         userId: ctx.user.id,
         cashier: ctx.user.name,
         customerId: fiado > 0 ? ctx.customerId : undefined,
+        branchId: currentBranchId(),
+        promotions: cart.promotions?.length ? cart.promotions : undefined,
         items: cart.lines,
         subtotal: cartSubtotal(cart),
         discount: cart.discount,

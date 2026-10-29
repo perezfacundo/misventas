@@ -64,6 +64,7 @@ function Ticket({ sale, settings, invoice, original, qrDataUrl }: {
         </div>
       ))}
       {rule}
+      {(sale.promotions ?? []).map((p) => <div key={p.promotionId} style={row}><span>{p.name}</span><span>−{formatMoney(p.amount)}</span></div>)}
       {sale.discount > 0 && <div style={row}><span>Descuento</span><span>−{formatMoney(sale.discount)}</span></div>}
       <div style={{ ...row, fontWeight: 700, fontSize: "1.3em" }}>
         <span>TOTAL</span>
