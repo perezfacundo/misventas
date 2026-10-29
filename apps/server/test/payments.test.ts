@@ -22,7 +22,7 @@ afterAll(async () => {
   await handle.close();
 });
 beforeEach(async () => {
-  await handle.db.execute(sql`TRUNCATE mp_charges, mp_accounts, entities, devices, accounts, tenants`);
+  await handle.db.execute(sql`TRUNCATE mp_charges, mp_accounts, entities, devices, accounts, tenants CASCADE`);
   hub = new SyncHub();
   app = await buildApp({ db: handle.db, hub, rateLimit: false, appSecret: "secreto-de-prueba", mpApiUrl: fake.url });
   token = await register("duenio@kiosco.com");

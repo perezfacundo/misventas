@@ -18,6 +18,7 @@ import { Button, Card, Field, Modal, PageHeader, Segmented, TextInput, Toggle, u
 import { useSession } from "../components/Session";
 import { MercadoPagoSettings } from "../components/MercadoPagoSettings";
 import { PrinterSettings } from "../components/PrinterSettings";
+import { ArcaSettings } from "../components/ArcaSettings";
 
 const ALL_METHODS: PaymentMethod[] = ["efectivo", "debito", "credito", "transferencia", "mercadopago", "fiado"];
 
@@ -48,6 +49,7 @@ export function Ajustes({ settings }: { settings: Settings }) {
 
         {can("ajustes") && <CloudCard />}
         {can("ajustes") && <MercadoPagoSettings />}
+        {can("ajustes") && <ArcaSettings settings={settings} />}
         {can("usuarios") && <UsersCard />}
 
         {can("ajustes") && (

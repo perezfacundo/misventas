@@ -5,7 +5,11 @@ import {
   balanceOf, checkCreditLimit, formatMoney, PAYMENT_LABELS, searchProducts, settle, suggestCashAmounts,
   type Cents, type Payment, type PaymentMethod, type TenderInput,
 } from "@misventas/core";
-import type { Customer } from "../db";
+import type { Customer, InvoiceMode, InvoiceReceiver } from "../db";
+import {
+  CBTE_LABELS, DOC, invoiceTypeFor, isValidCuit, needsIdentification, RECEIVER_CONDITION_LABELS, RECEIVER_CONDITIONS,
+  type IssuerCondition,
+} from "@misventas/core";
 import { createCustomer, useAccountMovements, useCustomers } from "../data/customers";
 import { useOnline } from "../lib/hooks";
 import {
@@ -35,15 +39,17 @@ interface Tender {
 const isLocked = (t: Tender | undefined) => t?.charge?.status === "pendiente" || t?.charge?.status === "pagado";
 
 export function CobroDialog({
-  open, total, methods, resume, onClose, onConfirm,
+  open, total, methods, resume, invoicing, onClose, onConfirm,
 }: {
   open: boolean;
   total: Cents;
   methods: PaymentMethod[];
+  /** Factura electrónica: null si el comercio no factura. */
+  invoicing?: { mode: Exclude<InvoiceMode, "nunca">; condition: IssuerCondition } | null;
   /** Cobro de Mercado Pago que quedó en curso (por ejemplo, si la app se cerró mientras el cliente pagaba). */
   resume?: Charge | null;
   onClose: () => void;
-  onConfirm: (payments: Payment[], change: Cents, customerId?: string) => Promise<void>;
+  onConfirm: (payments: Payment[], change: Cents, customerId?: string, invoice?: InvoiceReceiver | null) => Promise<void>;
 }) {
   const [tenders, setTenders] = useState<Tender[]>([]);
   const [customer, setCustomer] = useState<Customer | null>(null);
@@ -51,6 +57,7 @@ export function CobroDialog({
   const [busy, setBusy] = useState(false);
   const [starting, setStarting] = useState(false);
   const mpPendingRef = useRef(false);
+  const [invoice, setInvoice] = useState<InvoiceDraft>(EMPTY_INVOICE);
   const toast = useToast();
   const online = useOnline();
   const mp = useMpAvailability();
@@ -65,8 +72,9 @@ export function CobroDialog({
       setActive(0);
       setBusy(false);
       setCustomer(null);
+      setInvoice({ ...EMPTY_INVOICE, wanted: invoicing?.mode === "siempre" });
     }
-  }, [open, methods, resume]);
+  }, [open, methods, resume, invoicing?.mode]);
 
   // Montos sin cargar: con un solo medio se asume que paga justo; si hay varios,
   // el primer medio electrónico sin monto toma "el resto" y el efectivo sin monto cuenta 0.
@@ -85,7 +93,8 @@ export function CobroDialog({
   const fiado = effective.filter((t) => t.method === "fiado").reduce((sum, t) => sum + t.amount, 0);
   const needsCustomer = fiado > 0 && !customer;
   const waiting = tenders.some((t) => t.charge?.status === "pendiente");
-  const canConfirm = result.ok && !needsCustomer && !busy && !waiting;
+  const invoiceError = invoicing && invoice.wanted ? invoiceProblem(invoice, total, invoicing.condition) : null;
+  const canConfirm = result.ok && !needsCustomer && !busy && !waiting && !invoiceError;
   const othersSum = (i: number) => effective.reduce((s, t, j) => (j === i ? s : s + t.amount), 0);
 
   const update = (i: number, patch: Partial<Tender>) =>
@@ -114,7 +123,7 @@ export function CobroDialog({
     if (!result.ok || !canConfirm) return;
     setBusy(true);
     try {
-      await onConfirm(result.payments, result.change, fiado > 0 ? customer!.id : undefined);
+      await onConfirm(result.payments, result.change, fiado > 0 ? customer!.id : undefined, invoicing && invoice.wanted ? receiverOf(invoice) : null);
     } finally {
       setBusy(false);
     }
@@ -245,6 +254,7 @@ export function CobroDialog({
           </div>
           <Button size="lg" onClick={() => void handleClose()}>Volver</Button>
           {needsCustomer && result.ok && <p className="w-full font-semibold text-warn">Elegí a quién se le fía para poder confirmar.</p>}
+          {invoiceError && result.ok && <p className="w-full font-semibold text-warn">{invoiceError}</p>}
           <Button size="lg" variant="primary" onClick={confirm} disabled={!canConfirm} className="min-w-56">
             {mpPending ? "Ya lo cobré, confirmar" : "Confirmar cobro"} <Kbd>Enter</Kbd>
           </Button>
@@ -360,6 +370,8 @@ export function CobroDialog({
             </label>
           </div>
         )}
+
+        {invoicing && <InvoiceOptions draft={invoice} onChange={setInvoice} total={total} condition={invoicing.condition} />}
 
         {tenders.length === 1 && result.ok && (
           <button type="button" onClick={addTender} className="self-start text-base font-semibold text-muted underline underline-offset-4 hover:text-ink">
@@ -505,5 +517,81 @@ function QrImage({ data }: { data: string }) {
     <img src={src} alt="Código QR para pagar con Mercado Pago" className="size-48 shrink-0 rounded-xl bg-white p-2" />
   ) : (
     <div className="size-48 shrink-0 rounded-xl bg-white" />
+  );
+}
+
+// --- Factura electrónica ---
+
+interface InvoiceDraft {
+  wanted: boolean;
+  kind: "final" | "dni" | "cuit";
+  doc: string;
+  name: string;
+  condicion: number;
+}
+
+const EMPTY_INVOICE: InvoiceDraft = { wanted: false, kind: "final", doc: "", name: "", condicion: RECEIVER_CONDITIONS.CONSUMIDOR_FINAL };
+
+function receiverOf(d: InvoiceDraft): InvoiceReceiver {
+  if (d.kind === "final") return { docTipo: DOC.CONSUMIDOR_FINAL, docNro: "0", condicion: RECEIVER_CONDITIONS.CONSUMIDOR_FINAL };
+  if (d.kind === "dni") return { docTipo: DOC.DNI, docNro: d.doc.replace(/\D/g, ""), condicion: RECEIVER_CONDITIONS.CONSUMIDOR_FINAL, name: d.name.trim() || undefined };
+  return { docTipo: DOC.CUIT, docNro: d.doc.replace(/\D/g, ""), condicion: d.condicion, name: d.name.trim() || undefined };
+}
+
+/** Qué falta para poder emitir; null si está todo bien. */
+function invoiceProblem(d: InvoiceDraft, total: Cents, condition: IssuerCondition): string | null {
+  if (d.kind === "dni" && !/^\d{7,8}$/.test(d.doc.replace(/\D/g, ""))) return "Cargá un DNI válido (7 u 8 números) para la factura.";
+  if (d.kind === "cuit" && !isValidCuit(d.doc)) return "Cargá un CUIT válido para la factura.";
+  if (d.kind === "final" && needsIdentification(total)) return "Desde $10.000.000 la factura tiene que identificar al comprador (DNI o CUIT).";
+  const tipo = invoiceTypeFor(condition, receiverOf(d).condicion);
+  if (CBTE_LABELS[tipo] === "Factura A" && d.kind !== "cuit") return "La factura A necesita el CUIT del cliente.";
+  return null;
+}
+
+function InvoiceOptions({ draft, onChange, total, condition }: { draft: InvoiceDraft; onChange: (d: InvoiceDraft) => void; total: Cents; condition: IssuerCondition }) {
+  const set = (patch: Partial<InvoiceDraft>) => onChange({ ...draft, ...patch });
+  const tipo = invoiceTypeFor(condition, receiverOf(draft).condicion);
+  return (
+    <div className="rounded-2xl border border-line p-4">
+      <label className="flex cursor-pointer items-center gap-3 text-lg font-semibold">
+        <input type="checkbox" className="size-6 accent-[var(--brand)]" checked={draft.wanted} onChange={(e) => set({ wanted: e.target.checked })} />
+        Hacer factura {draft.wanted && <span className="text-muted">· {CBTE_LABELS[tipo]}</span>}
+      </label>
+      {draft.wanted && (
+        <div className="mt-3 flex flex-col gap-3">
+          <div className="flex flex-wrap gap-2" role="radiogroup" aria-label="Comprador">
+            {([["final", "Consumidor final"], ["dni", "Con DNI"], ["cuit", "Con CUIT"]] as const).map(([k, label]) => (
+              <button key={k} type="button" role="radio" aria-checked={draft.kind === k} onClick={() => set({ kind: k, condicion: k === "cuit" ? RECEIVER_CONDITIONS.RESPONSABLE_INSCRIPTO : RECEIVER_CONDITIONS.CONSUMIDOR_FINAL })}
+                className={cx("min-h-11 rounded-xl border px-4 font-semibold", draft.kind === k ? "border-brand bg-brand-soft ring-2 ring-brand/40" : "border-line")}>
+                {label}
+              </button>
+            ))}
+          </div>
+          {draft.kind !== "final" && (
+            <div className="grid gap-3 sm:grid-cols-2">
+              <label className="flex flex-col gap-1.5">
+                <span className="text-sm font-semibold text-muted">{draft.kind === "dni" ? "DNI" : "CUIT"}</span>
+                <TextInput inputMode="numeric" value={draft.doc} onChange={(e) => set({ doc: e.target.value })} placeholder={draft.kind === "dni" ? "30111222" : "30-71234567-1"} />
+              </label>
+              <label className="flex flex-col gap-1.5">
+                <span className="text-sm font-semibold text-muted">Nombre o razón social (opcional)</span>
+                <TextInput value={draft.name} onChange={(e) => set({ name: e.target.value })} />
+              </label>
+              {draft.kind === "cuit" && (
+                <label className="flex flex-col gap-1.5 sm:col-span-2">
+                  <span className="text-sm font-semibold text-muted">Condición frente al IVA del cliente</span>
+                  <select className={inputClass} value={draft.condicion} onChange={(e) => set({ condicion: Number(e.target.value) })}>
+                    {[RECEIVER_CONDITIONS.RESPONSABLE_INSCRIPTO, RECEIVER_CONDITIONS.MONOTRIBUTO, RECEIVER_CONDITIONS.EXENTO, RECEIVER_CONDITIONS.CONSUMIDOR_FINAL].map((c) => (
+                      <option key={c} value={c}>{RECEIVER_CONDITION_LABELS[c]}</option>
+                    ))}
+                  </select>
+                </label>
+              )}
+            </div>
+          )}
+          {draft.kind === "final" && needsIdentification(total) && <p className="font-semibold text-warn">Desde $10.000.000 hay que identificar al comprador.</p>}
+        </div>
+      )}
+    </div>
   );
 }

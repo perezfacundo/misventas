@@ -1,10 +1,11 @@
 import { useEffect, useState } from "react";
 import { Archive, X } from "lucide-react";
-import { formatMoney, markupPercent, type Cents } from "@misventas/core";
+import { formatMoney, IVA_RATES, markupPercent, type Cents } from "@misventas/core";
+import { useSettings } from "../data/settings";
 import type { Product, Supplier } from "../db";
 import { findOrCreateSupplier } from "../data/suppliers";
 import { adjustStockTo, archiveProduct, catalogOptions, createProduct, recordLoss, updateProduct, type ProductInput } from "../data/products";
-import { Button, Field, MoneyInput, Modal, StockBadge, TextInput, Toggle, useToast } from "./ui";
+import { Button, Field, inputClass, MoneyInput, Modal, StockBadge, TextInput, Toggle, useToast } from "./ui";
 
 interface Draft {
   name: string;
@@ -19,6 +20,7 @@ interface Draft {
   minStock: string;
   favorite: boolean;
   trackStock: boolean;
+  ivaRate: number;
 }
 
 const fromProduct = (p: Product | null, suppliers: Supplier[], barcode?: string): Draft => ({
@@ -34,6 +36,7 @@ const fromProduct = (p: Product | null, suppliers: Supplier[], barcode?: string)
   minStock: String(p?.minStock ?? 0),
   favorite: p?.favorite ?? false,
   trackStock: p?.trackStock ?? true,
+  ivaRate: p?.ivaRate ?? 21,
 });
 
 const toInt = (s: string) => {
@@ -57,6 +60,8 @@ export function ProductForm({
   const [error, setError] = useState<string | null>(null);
   const toast = useToast();
   const { categories } = catalogOptions(products);
+  const settings = useSettings();
+  const showIva = settings?.fiscalCondition === "responsable_inscripto";
 
   useEffect(() => {
     if (open) {
@@ -94,6 +99,7 @@ export function ProductForm({
       minStock: toInt(d.minStock),
       favorite: d.favorite,
       trackStock: d.trackStock,
+      ivaRate: d.ivaRate,
     };
     if (product) {
       await updateProduct(product.id, input);
@@ -185,6 +191,13 @@ export function ProductForm({
           <TextInput value={d.supplier} onChange={(e) => set("supplier", e.target.value)} list="proveedores" placeholder="Ej.: Distribuidora Norte" />
           <datalist id="proveedores">{suppliers.map((s) => <option key={s.id} value={s.name} />)}</datalist>
         </Field>
+        {showIva && (
+          <Field label="Alícuota de IVA" hint="Para discriminar el IVA en las facturas. La mayoría de lo que vende un kiosco es 21%.">
+            <select className={inputClass} value={d.ivaRate} onChange={(e) => set("ivaRate", Number(e.target.value))}>
+              {IVA_RATES.map((r) => <option key={r} value={r}>{String(r).replace(".", ",")}%</option>)}
+            </select>
+          </Field>
+        )}
         <Field label="Código interno (opcional)" hint="Un número corto para buscarlo rápido.">
           <TextInput value={d.code} onChange={(e) => set("code", e.target.value)} />
         </Field>

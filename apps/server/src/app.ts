@@ -12,6 +12,8 @@ import { hashPassword, hashToken, newDeviceToken, verifyPassword } from "./secur
 import { SyncHub } from "./events.ts";
 import { ApiError } from "./errors.ts";
 import { registerPayments } from "./payments.ts";
+import { registerArca } from "./arca/routes.ts";
+import type { ArcaEnv, ArcaUrls } from "./arca/wsaa.ts";
 import { SecretBox } from "./secrets.ts";
 
 export interface AppOptions {
@@ -34,6 +36,8 @@ export interface AppOptions {
    * (nadie debería vincular su cuenta real) y se les pide a los buscadores que no indexen el sitio.
    */
   demo?: boolean;
+  /** Direcciones de ARCA por ambiente (los tests usan un ARCA falso). */
+  arcaUrls?: Partial<Record<ArcaEnv, ArcaUrls>>;
 }
 
 interface DeviceContext {
@@ -321,6 +325,14 @@ export async function buildApp(opts: AppOptions) {
     mpApiUrl: opts.mpApiUrl ?? "https://api.mercadopago.com",
     publicUrl: opts.publicUrl,
     demo: opts.demo ?? false,
+  });
+
+  await registerArca(app, {
+    db,
+    authenticate,
+    secrets: opts.appSecret ? new SecretBox(opts.appSecret) : null,
+    demo: opts.demo ?? false,
+    urls: opts.arcaUrls,
   });
 
   if (opts.webDist && existsSync(opts.webDist)) {

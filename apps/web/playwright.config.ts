@@ -9,6 +9,7 @@ const systemChromium = process.env.CHROMIUM_PATH ?? (existsSync("/usr/bin/chromi
 const dataDir = mkdtempSync(join(tmpdir(), "misventas-e2e-"));
 const API_PORT = 3100;
 export const FAKE_MP_PORT = 3101;
+export const FAKE_ARCA_PORT = 3102;
 
 export default defineConfig({
   testDir: "e2e",
@@ -32,11 +33,20 @@ export default defineConfig({
       timeout: 30_000,
     },
     {
+      // ARCA falso: WSAA y WSFEv1, y firma de pedidos de certificado.
+      command: "node ../server/test/fake-arca.ts",
+      url: `http://127.0.0.1:${FAKE_ARCA_PORT}/__fake/health`,
+      env: { PORT: String(FAKE_ARCA_PORT) },
+      reuseExistingServer: false,
+      timeout: 30_000,
+    },
+    {
       command: "node ../server/src/main.ts",
       url: `http://127.0.0.1:${API_PORT}/api/health`,
       env: {
         PORT: String(API_PORT), DATA_DIR: dataDir, DISABLE_RATE_LIMIT: "1", WEB_DIST: "", NODE_ENV: "test",
         APP_SECRET: "secreto-e2e", MP_API_URL: `http://127.0.0.1:${FAKE_MP_PORT}`,
+        ARCA_TEST_URL: `http://127.0.0.1:${FAKE_ARCA_PORT}`,
       },
       reuseExistingServer: false,
       timeout: 60_000,

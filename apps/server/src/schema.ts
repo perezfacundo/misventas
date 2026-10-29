@@ -75,4 +75,53 @@ export const mpCharges = pgTable("mp_charges", {
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
-export const schema = { tenants, accounts, devices, entities, mpAccounts, mpCharges };
+
+/** Datos fiscales y credenciales de ARCA de cada comercio. Clave privada y ticket de acceso, cifrados. */
+export const arcaConfig = pgTable("arca_config", {
+  tenantId: uuid("tenant_id").primaryKey().references(() => tenants.id),
+  cuit: text("cuit").notNull(),
+  razonSocial: text("razon_social").notNull(),
+  condicion: text("condicion").notNull(),
+  ptoVta: bigint("pto_vta", { mode: "number" }).notNull(),
+  ambiente: text("ambiente").notNull(),
+  domicilio: text("domicilio").notNull().default(""),
+  iibb: text("iibb").notNull().default(""),
+  inicioActividades: text("inicio_actividades").notNull().default(""),
+  keyEnc: text("key_enc"),
+  csrPem: text("csr_pem"),
+  certPem: text("cert_pem"),
+  certExpiresAt: timestamp("cert_expires_at", { withTimezone: true }),
+  taTokenEnc: text("ta_token_enc"),
+  taSignEnc: text("ta_sign_enc"),
+  taExpiresAt: timestamp("ta_expires_at", { withTimezone: true }),
+  taAmbiente: text("ta_ambiente"),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+/** Cada factura o nota de crédito pedida a ARCA. El id lo genera la caja: reintentar nunca emite dos veces. */
+export const arcaInvoices = pgTable("arca_invoices", {
+  id: uuid("id").primaryKey(),
+  tenantId: uuid("tenant_id").notNull().references(() => tenants.id),
+  saleId: text("sale_id").notNull(),
+  kind: text("kind").notNull(),
+  status: text("status").notNull(),
+  ambiente: text("ambiente").notNull(),
+  cbteTipo: bigint("cbte_tipo", { mode: "number" }).notNull(),
+  ptoVta: bigint("pto_vta", { mode: "number" }).notNull(),
+  numero: bigint("numero", { mode: "number" }),
+  fecha: text("fecha"),
+  cae: text("cae"),
+  caeVto: text("cae_vto"),
+  docTipo: bigint("doc_tipo", { mode: "number" }).notNull(),
+  docNro: text("doc_nro").notNull(),
+  condicionIvaReceptor: bigint("condicion_iva_receptor", { mode: "number" }).notNull(),
+  receiverName: text("receiver_name"),
+  total: bigint("total", { mode: "number" }).notNull(),
+  amounts: jsonb("amounts").notNull(),
+  messages: jsonb("messages").notNull(),
+  associatedId: uuid("associated_id"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+export const schema = { tenants, accounts, devices, entities, mpAccounts, mpCharges, arcaConfig, arcaInvoices };

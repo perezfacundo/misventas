@@ -10,6 +10,8 @@ export interface CartLine {
   /** Costo al momento de vender, para estimar la ganancia. null si no se conoce. */
   unitCost: Cents | null;
   quantity: number;
+  /** Alícuota de IVA del producto al momento de vender (para facturar como responsable inscripto). */
+  ivaRate?: number;
 }
 
 export interface Cart {
@@ -23,6 +25,7 @@ export interface SellableProduct {
   name: string;
   price: Cents;
   cost: Cents | null;
+  ivaRate?: number;
 }
 
 export const emptyCart = (): Cart => ({ lines: [], discount: 0 });
@@ -51,6 +54,7 @@ export function addProduct(cart: Cart, product: SellableProduct, quantity = 1): 
     unitPrice: product.price,
     unitCost: product.cost,
     quantity,
+    ...(product.ivaRate !== undefined ? { ivaRate: product.ivaRate } : {}),
   };
   return { ...cart, lines: [...cart.lines, line] };
 }

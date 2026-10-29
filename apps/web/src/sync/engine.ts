@@ -254,6 +254,12 @@ export async function applyRemote(changes: PulledEntity[], cursor: number): Prom
 
 // --- Ciclo de sincronización ---
 
+const afterSync: (() => Promise<void> | void)[] = [];
+/** Tareas que corren después de cada sincronización exitosa (por ejemplo, emitir facturas pendientes). */
+export function onSynced(fn: () => Promise<void> | void): void {
+  afterSync.push(fn);
+}
+
 let running: Promise<void> | null = null;
 let again = false;
 
@@ -285,6 +291,7 @@ async function syncOnce(): Promise<void> {
     await push(cloud);
     await pull(cloud);
     setStatus({ state: "idle", pending: await countPending(), lastSyncAt: Date.now(), message: undefined });
+    for (const fn of afterSync) void fn();
   } catch (e) {
     const err = e instanceof ApiError ? e : new ApiError(0, "error", String(e));
     if (err.status === 401) {

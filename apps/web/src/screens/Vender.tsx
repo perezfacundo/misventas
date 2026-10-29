@@ -6,7 +6,7 @@ import {
   lineTotal, PAYMENT_LABELS, removeLine, searchProducts, setDiscount, setQuantity,
   uuidv7, type Cart, type Cents, type Payment,
 } from "@misventas/core";
-import { db, type Product, type Sale, type Settings } from "../db";
+import { db, type InvoiceReceiver, type IssuedInvoice, type Product, type Sale, type Settings } from "../db";
 import { useProducts } from "../data/products";
 import { useOpenSession } from "../data/cash";
 import { completeSale } from "../data/sales";
@@ -17,7 +17,11 @@ import { CobroDialog } from "../components/CobroDialog";
 import { OpenCashDialog } from "../components/OpenCashDialog";
 import { openCashDrawer, printTicket } from "../components/Ticket";
 import { useSession } from "../components/Session";
+import { InvoiceStatus } from "../components/InvoiceStatus";
 import { forgetCharge, getCharge, rememberedCharge, type Charge } from "../payments/mercadopago";
+import { processInvoices, requestInvoice, useSaleInvoices, waitForInvoice } from "../data/invoices";
+import { getCloudLink } from "../sync/engine";
+
 
 /** "3*" antes de escanear o buscar multiplica la cantidad, como en las cajas de supermercado. */
 function parseQuery(q: string): { qty: number; text: string } {
@@ -36,6 +40,12 @@ export function Vender({ settings }: { settings: Settings }) {
   const [lastSale, setLastSale] = useState<Sale | null>(null);
   const [dialog, setDialog] = useState<null | "cobro" | "abrir-caja" | "varios" | "descuento">(null);
   const [resume, setResume] = useState<Charge | null>(null);
+  const cloud = useLiveQuery(getCloudLink, []);
+  // Facturación activa: con ARCA configurado en Ajustes y este dispositivo vinculado a la nube.
+  const invoicing =
+    cloud && settings.fiscalCondition && settings.invoiceMode && settings.invoiceMode !== "nunca"
+      ? { mode: settings.invoiceMode, condition: settings.fiscalCondition }
+      : null;
   const searchRef = useRef<HTMLInputElement>(null);
   const toast = useToast();
   const { user, can } = useSession();
@@ -51,7 +61,7 @@ export function Vender({ settings }: { settings: Settings }) {
 
   const add = (p: Product, quantity = 1) => {
     const inCart = cart.lines.find((l) => l.productId === p.id)?.quantity ?? 0;
-    const next = addProduct(cart, { id: p.id, name: p.name, price: p.price, cost: p.cost }, quantity);
+    const next = addProduct(cart, { id: p.id, name: p.name, price: p.price, cost: p.cost, ivaRate: p.ivaRate }, quantity);
     setCart(next);
     setHighlight(next.lines.find((l) => l.productId === p.id)?.lineId ?? null);
     setLastSale(null);
@@ -77,7 +87,9 @@ export function Vender({ settings }: { settings: Settings }) {
     setDialog(session ? "cobro" : "abrir-caja");
   };
 
-  const finishSale = async (payments: Payment[], change: Cents, customerId?: string) => {
+  const printError = (e: unknown) => toast({ tone: "error", message: `No se pudo imprimir: ${e instanceof Error ? e.message : String(e)}` });
+
+  const finishSale = async (payments: Payment[], change: Cents, customerId?: string, invoiceReceiver?: InvoiceReceiver | null) => {
     try {
       const sale = await completeSale(cart, payments, change, { user, customerId });
       forgetCharge();
@@ -86,8 +98,23 @@ export function Vender({ settings }: { settings: Settings }) {
       setLastSale(sale);
       setDialog(null);
       const paidCash = payments.some((p) => p.method === "efectivo");
-      const print = settings.autoPrint ? printTicket(sale, settings, { openDrawer: paidCash }) : paidCash ? openCashDrawer(settings) : null;
-      print?.catch((e: unknown) => toast({ tone: "error", message: `No se pudo imprimir: ${e instanceof Error ? e.message : String(e)}` }));
+      if (invoiceReceiver) {
+        // La factura se pide siempre (aunque no haya internet); se imprime cuando ARCA la autoriza.
+        const record = await requestInvoice(sale, invoiceReceiver);
+        void processInvoices();
+        if (paidCash && !settings.autoPrint) openCashDrawer(settings).catch(printError);
+        if (settings.autoPrint) {
+          void waitForInvoice(record.id).then((r) => {
+            if (r?.status !== "autorizada") {
+              toast({ tone: "ok", message: "La factura todavía no salió: se imprime el ticket interno. Reimprimila desde Ventas." });
+            }
+            return printTicket(sale, settings, { openDrawer: paidCash, invoice: r?.result }).catch(printError);
+          });
+        }
+      } else {
+        const print = settings.autoPrint ? printTicket(sale, settings, { openDrawer: paidCash }) : paidCash ? openCashDrawer(settings) : null;
+        print?.catch(printError);
+      }
       focusSearch();
     } catch (e) {
       toast({ tone: "error", message: e instanceof Error ? e.message : "No se pudo guardar la venta." });
@@ -306,10 +333,7 @@ export function Vender({ settings }: { settings: Settings }) {
             </Button>
           </>
         ) : lastSale ? (
-          <LastSalePanel
-            sale={lastSale}
-            onPrint={() => printTicket(lastSale, settings).catch((e: unknown) => toast({ tone: "error", message: `No se pudo imprimir: ${e instanceof Error ? e.message : String(e)}` }))}
-          />
+          <LastSalePanel sale={lastSale} onPrint={(invoice) => printTicket(lastSale, settings, { invoice }).catch(printError)} />
         ) : (
           <p className="hidden text-lg text-muted lg:block">El total aparece acá apenas agregás un producto.</p>
         )}
@@ -333,6 +357,7 @@ export function Vender({ settings }: { settings: Settings }) {
         total={total}
         methods={settings.enabledMethods}
         resume={resume}
+        invoicing={invoicing}
         onClose={() => { setDialog(null); setResume(null); focusSearch(); }}
         onConfirm={finishSale}
       />
@@ -352,7 +377,8 @@ export function Vender({ settings }: { settings: Settings }) {
   );
 }
 
-function LastSalePanel({ sale, onPrint }: { sale: Sale; onPrint: () => void }) {
+function LastSalePanel({ sale, onPrint }: { sale: Sale; onPrint: (invoice?: IssuedInvoice) => void }) {
+  const invoice = useSaleInvoices(sale.id).find((r) => r.kind === "factura");
   return (
     <div className="flex flex-col gap-3" aria-live="polite">
       <p className="flex items-center gap-2 text-xl font-bold text-brand">
@@ -367,7 +393,10 @@ function LastSalePanel({ sale, onPrint }: { sale: Sale; onPrint: () => void }) {
       <p className="num text-lg text-muted">
         Total {formatMoney(sale.total)} · {sale.payments.map((p) => PAYMENT_LABELS[p.method]).join(" + ")}
       </p>
-      <Button onClick={onPrint} className="self-start"><Printer className="size-5" /> Imprimir ticket</Button>
+      {invoice && <InvoiceStatus record={invoice} />}
+      <Button onClick={() => onPrint(invoice?.result)} className="self-start">
+        <Printer className="size-5" /> {invoice?.status === "autorizada" ? "Imprimir factura" : "Imprimir ticket"}
+      </Button>
     </div>
   );
 }

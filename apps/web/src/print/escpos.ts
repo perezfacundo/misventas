@@ -1,5 +1,8 @@
-import { formatMoney, lineTotal, PAYMENT_LABELS } from "@misventas/core";
-import type { Sale, Settings } from "../db";
+import {
+  CBTE_LABELS, cbteLetter, DOC, DOC_LABELS, formatCuit, formatInvoiceNumber, formatMoney, ISSUER_CONDITION_LABELS,
+  lineTotal, PAYMENT_LABELS, RECEIVER_CONDITION_LABELS,
+} from "@misventas/core";
+import type { IssuedInvoice, Sale, Settings } from "../db";
 import { formatDateTime } from "../lib/format";
 
 /**
@@ -56,6 +59,52 @@ export const CMD = {
   drawer: [ESC, 0x70, 0x00, 0x19, 0xfa],
 } as const;
 
+/** Código QR nativo de la ticketera (modelo 2, corrección M). */
+export function qrCommand(data: string, moduleSize = 5): number[] {
+  const bytes = encodeText(data);
+  const len = bytes.length + 3;
+  return [
+    GS, 0x28, 0x6b, 0x04, 0x00, 0x31, 0x41, 0x32, 0x00, // modelo 2
+    GS, 0x28, 0x6b, 0x03, 0x00, 0x31, 0x43, moduleSize, // tamaño del módulo
+    GS, 0x28, 0x6b, 0x03, 0x00, 0x31, 0x45, 0x31, // corrección de errores M
+    GS, 0x28, 0x6b, len % 256, Math.floor(len / 256), 0x31, 0x50, 0x30, ...bytes, // datos
+    GS, 0x28, 0x6b, 0x03, 0x00, 0x31, 0x51, 0x30, // imprimir
+  ];
+}
+
+/** "2026-10-28" → "28/10/2026" */
+export const dmy = (iso: string | null) => (iso ? iso.split("-").reverse().join("/") : "");
+
+/** Renglones fiscales, compartidos por el ticket ESC/POS y el de la ventana de impresión. */
+export function invoiceTexts(inv: IssuedInvoice) {
+  const letter = cbteLetter(inv.cbteTipo);
+  const receiver =
+    inv.receiver.docTipo === DOC.CONSUMIDOR_FINAL
+      ? "Cliente: Consumidor final"
+      : `Cliente: ${DOC_LABELS[inv.receiver.docTipo] ?? "Doc."} ${inv.receiver.docTipo === DOC.CUIT ? formatCuit(inv.receiver.docNro) : inv.receiver.docNro}${inv.receiver.name ? ` · ${inv.receiver.name}` : ""}`;
+  return {
+    title: (CBTE_LABELS[inv.cbteTipo] ?? "Comprobante").toUpperCase(),
+    code: `Cód. ${String(inv.cbteTipo).padStart(3, "0")}`,
+    number: `N.º ${formatInvoiceNumber(inv.ptoVta, inv.numero ?? 0)}`,
+    date: `Fecha: ${dmy(inv.fecha)}`,
+    issuer: [
+      `CUIT ${formatCuit(inv.issuer.cuit)}`,
+      ISSUER_CONDITION_LABELS[inv.issuer.condicion],
+      inv.issuer.domicilio,
+      [inv.issuer.iibb && `IIBB: ${inv.issuer.iibb}`, inv.issuer.inicioActividades && `Inicio act.: ${dmy(inv.issuer.inicioActividades)}`].filter(Boolean).join(" · "),
+    ].filter(Boolean),
+    receiver,
+    receiverCondition: `Cond. IVA: ${RECEIVER_CONDITION_LABELS[inv.receiver.condicion] ?? ""}`,
+    /** La A discrimina IVA por alícuota. */
+    ivaLines: letter === "A" ? [["Neto gravado", formatMoney(inv.amounts.neto)], ...inv.amounts.groups.map((g) => [`IVA ${String(g.rate).replace(".", ",")}%`, formatMoney(g.iva)])] : [],
+    /** Responsable inscripto vendiendo con B: Régimen de Transparencia Fiscal al Consumidor (Ley 27.743). */
+    transparency: letter === "B" ? { legend: "Régimen de Transparencia Fiscal al Consumidor (Ley 27.743)", iva: formatMoney(inv.amounts.iva), others: formatMoney(0) } : null,
+    cae: `CAE: ${inv.cae ?? ""}`,
+    caeVto: `Vto. CAE: ${dmy(inv.caeVto)}`,
+    test: inv.ambiente === "homologacion",
+  };
+}
+
 /** Columnas de texto según el ancho del papel (fuente A). */
 export const columnsFor = (paperWidth: 58 | 80) => (paperWidth === 80 ? 48 : 32);
 
@@ -105,6 +154,10 @@ class Builder {
 export interface TicketOptions {
   /** Abrir el cajón de dinero (solo tiene sentido si hubo efectivo). */
   openDrawer?: boolean;
+  /** Factura o nota de crédito autorizada: el ticket sale como comprobante fiscal. */
+  invoice?: IssuedInvoice;
+  /** Para una nota de crédito: la factura que anula. */
+  original?: IssuedInvoice;
 }
 
 export function ticketBytes(sale: Sale, settings: Settings, opts: TicketOptions = {}): Uint8Array {
@@ -113,16 +166,32 @@ export function ticketBytes(sale: Sale, settings: Settings, opts: TicketOptions 
   if (opts.openDrawer) b.raw(CMD.drawer);
   const dashed = "-".repeat(width);
 
+  const inv = opts.invoice;
+  const fiscal = inv ? invoiceTexts(inv) : null;
+
   b.raw(CMD.alignCenter).raw(CMD.boldOn).raw(CMD.sizeDouble);
-  for (const l of wrap(settings.businessName || "Mis Ventas", Math.floor(width / 2))) b.line(l);
+  for (const l of wrap(inv?.issuer.razonSocial || settings.businessName || "Mis Ventas", Math.floor(width / 2))) b.line(l);
   b.raw(CMD.sizeNormal).raw(CMD.boldOff);
-  if (settings.address) for (const l of wrap(settings.address, width)) b.line(l);
-  if (settings.taxId) b.line(`CUIT ${settings.taxId}`);
-  b.raw(CMD.alignLeft).line();
-  b.line(`Comprobante N.º ${sale.number}`);
-  b.line(formatDateTime(sale.createdAt));
-  b.line(`Atendió: ${sale.cashier}`);
-  b.raw(CMD.boldOn).line("NO VÁLIDO COMO FACTURA").raw(CMD.boldOff);
+  if (fiscal) {
+    for (const text of fiscal.issuer) for (const l of wrap(text, width)) b.line(l);
+    b.line(dashed);
+    b.raw(CMD.boldOn).raw(CMD.sizeTall).line(fiscal.title).raw(CMD.sizeNormal).raw(CMD.boldOff);
+    b.line(fiscal.code);
+    b.raw(CMD.alignLeft).line(fiscal.number).line(fiscal.date);
+    if (opts.original) b.line(`Anula ${CBTE_LABELS[opts.original.cbteTipo]} ${formatInvoiceNumber(opts.original.ptoVta, opts.original.numero ?? 0)}`);
+    if (fiscal.test) b.raw(CMD.boldOn).line("PRUEBA - SIN VALIDEZ FISCAL").raw(CMD.boldOff);
+    for (const l of wrap(fiscal.receiver, width)) b.line(l);
+    if (inv!.receiver.docTipo !== DOC.CONSUMIDOR_FINAL) b.line(fiscal.receiverCondition);
+    b.line(`Atendió: ${sale.cashier} · Venta ${sale.number}`);
+  } else {
+    if (settings.address) for (const l of wrap(settings.address, width)) b.line(l);
+    if (settings.taxId) b.line(`CUIT ${settings.taxId}`);
+    b.raw(CMD.alignLeft).line();
+    b.line(`Comprobante N.º ${sale.number}`);
+    b.line(formatDateTime(sale.createdAt));
+    b.line(`Atendió: ${sale.cashier}`);
+    b.raw(CMD.boldOn).line("NO VÁLIDO COMO FACTURA").raw(CMD.boldOff);
+  }
   b.line(dashed);
 
   for (const item of sale.items) {
@@ -136,7 +205,22 @@ export function ticketBytes(sale: Sale, settings: Settings, opts: TicketOptions 
   b.raw(CMD.boldOn).raw(CMD.sizeTall).line(twoColumns("TOTAL", formatMoney(sale.total), width)).raw(CMD.sizeNormal).raw(CMD.boldOff);
   for (const p of sale.payments) b.line(twoColumns(PAYMENT_LABELS[p.method], formatMoney(p.tendered ?? p.amount), width));
   if (sale.change > 0) b.line(twoColumns("Vuelto", formatMoney(sale.change), width));
-  if (sale.status === "anulada") b.raw(CMD.alignCenter).raw(CMD.boldOn).line("*** ANULADA ***").raw(CMD.boldOff).raw(CMD.alignLeft);
+  if (fiscal) {
+    if (fiscal.ivaLines.length) {
+      b.line(dashed);
+      for (const [label, value] of fiscal.ivaLines) b.line(twoColumns(label!, value!, width));
+    }
+    if (fiscal.transparency) {
+      b.line(dashed);
+      for (const l of wrap(fiscal.transparency.legend, width)) b.line(l);
+      b.line(twoColumns("IVA contenido", fiscal.transparency.iva, width));
+      b.line(twoColumns("Otros imp. nac. indirectos", fiscal.transparency.others, width));
+    }
+    b.line(dashed).line(fiscal.cae).line(fiscal.caeVto);
+    if (inv!.qrUrl) b.raw(CMD.alignCenter).raw(qrCommand(inv!.qrUrl, settings.paperWidth === 80 ? 6 : 4)).line().line("Comprobante autorizado por ARCA").raw(CMD.alignLeft);
+  } else if (sale.status === "anulada") {
+    b.raw(CMD.alignCenter).raw(CMD.boldOn).line("*** ANULADA ***").raw(CMD.boldOff).raw(CMD.alignLeft);
+  }
 
   if (settings.ticketFooter) {
     b.line().raw(CMD.alignCenter);

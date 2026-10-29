@@ -31,6 +31,10 @@ const app = await buildApp({
   // Render (y otras plataformas) informan la URL pública por su cuenta.
   publicUrl: process.env.PUBLIC_URL ?? process.env.RENDER_EXTERNAL_URL,
   demo: process.env.DEMO_MODE === "1",
+  // Solo para pruebas: apuntar a un ARCA falso (ARCA_TEST_URL=http://host:puerto) en los dos ambientes.
+  arcaUrls: process.env.ARCA_TEST_URL
+    ? Object.fromEntries((["homologacion", "produccion"] as const).map((env) => [env, { wsaa: `${process.env.ARCA_TEST_URL}/ws/services/LoginCms`, wsfe: `${process.env.ARCA_TEST_URL}/wsfev1/service.asmx` }]))
+    : undefined,
   corsOrigins: process.env.CORS_ORIGINS?.split(",").map((o) => o.trim()).filter(Boolean),
 });
 

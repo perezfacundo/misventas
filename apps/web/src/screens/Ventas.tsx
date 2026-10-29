@@ -8,6 +8,8 @@ import { formatLongDay, formatTime, plural } from "../lib/format";
 import { Button, Card, cx, EmptyState, Field, Modal, PageHeader, TextInput, useToast } from "../components/ui";
 import { printTicket } from "../components/Ticket";
 import { useSession } from "../components/Session";
+import { InvoiceStatus } from "../components/InvoiceStatus";
+import { processInvoices, requestCreditNote, requestInvoice, useSaleInvoices } from "../data/invoices";
 
 const DAY = 24 * 60 * 60 * 1000;
 
@@ -69,16 +71,24 @@ function SaleDetail({ sale, settings, onClose }: { sale: Sale | null; settings: 
     false,
   );
   const customer = useLiveQuery(async () => (sale?.customerId ? db.customers.get(sale.customerId) : undefined), [sale?.customerId]);
+  const invoices = useSaleInvoices(sale?.id);
+  // La última factura vigente (si una fue rechazada y se reintentó, vale la nueva).
+  const invoice = [...invoices].reverse().find((r) => r.kind === "factura");
+  const creditNote = invoices.find((r) => r.kind === "nota_credito" && r.status !== "rechazada");
   useEffect(() => {
     setVoiding(false);
     setReason("");
   }, [sale?.id]);
 
   if (!sale) return null;
+  const printError = (e: unknown) => toast({ tone: "error", message: `No se pudo imprimir: ${e instanceof Error ? e.message : String(e)}` });
   const doVoid = async () => {
     try {
       await voidSale(sale.id, reason.trim(), user.name);
-      toast({ tone: "ok", message: `Anulaste la venta ${sale.number}. El stock volvió a su lugar.` });
+      // Factura autorizada → nota de crédito. Si todavía estaba pendiente, no se emite.
+      if (invoice?.status === "autorizada") await requestCreditNote(invoice);
+      void processInvoices();
+      toast({ tone: "ok", message: `Anulaste la venta ${sale.number}. El stock volvió a su lugar.${invoice?.status === "autorizada" ? " Se emite la nota de crédito." : ""}` });
       onClose();
     } catch (e) {
       toast({ tone: "error", message: e instanceof Error ? e.message : "No se pudo anular." });
@@ -99,8 +109,13 @@ function SaleDetail({ sale, settings, onClose }: { sale: Sale | null; settings: 
         ) : (
           <>
             {canVoid && <Button variant="danger" className="mr-auto" onClick={() => setVoiding(true)}><Ban className="size-5" /> Anular</Button>}
-            <Button onClick={() => printTicket(sale, settings).catch((e: unknown) => toast({ tone: "error", message: `No se pudo imprimir: ${e instanceof Error ? e.message : String(e)}` }))}>
-              <Printer className="size-5" /> Imprimir
+            {creditNote?.status === "autorizada" && invoice?.result && (
+              <Button onClick={() => printTicket(sale, settings, { invoice: creditNote.result, original: invoice.result }).catch(printError)}>
+                <Printer className="size-5" /> Nota de crédito
+              </Button>
+            )}
+            <Button onClick={() => printTicket(sale, settings, { invoice: invoice?.result }).catch(printError)}>
+              <Printer className="size-5" /> {invoice?.status === "autorizada" ? "Imprimir factura" : "Imprimir"}
             </Button>
             <Button variant="primary" onClick={onClose}>Listo</Button>
           </>
@@ -110,6 +125,7 @@ function SaleDetail({ sale, settings, onClose }: { sale: Sale | null; settings: 
       {voiding ? (
         <div className="flex flex-col gap-4">
           <p className="text-lg">Al anular, la venta deja de sumar en la caja y los productos vuelven al stock. Devolvé el dinero al cliente.</p>
+          {invoice?.status === "autorizada" && <p className="rounded-xl bg-warn-soft px-4 py-3 font-semibold text-warn">La venta tiene factura: se va a emitir una nota de crédito en ARCA por el total.</p>}
           <Field label="¿Por qué se anula?">
             <TextInput value={reason} onChange={(e) => setReason(e.target.value)} placeholder="Ej.: el cliente se arrepintió" />
           </Field>
@@ -118,6 +134,18 @@ function SaleDetail({ sale, settings, onClose }: { sale: Sale | null; settings: 
         <div className="flex flex-col gap-4">
           <p className="text-muted">{formatLongDay(sale.createdAt)}, {formatTime(sale.createdAt)} · Atendió {sale.cashier}</p>
           {customer && <p className="rounded-xl bg-surface-2 px-4 py-2.5">Fiado a <b>{customer.name}</b></p>}
+          {invoice && (
+            <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl bg-surface-2 px-4 py-2.5">
+              <InvoiceStatus record={invoice} />
+              {invoice.status === "rechazada" && sale.status === "completada" && (
+                <Button onClick={async () => {
+                  await requestInvoice(sale, invoice.request.receiver);
+                  void processInvoices();
+                }}>Volver a intentar</Button>
+              )}
+            </div>
+          )}
+          {creditNote && <div className="rounded-xl bg-surface-2 px-4 py-2.5"><InvoiceStatus record={creditNote} /></div>}
           {sale.status === "anulada" && (
             <p className="rounded-xl bg-danger-soft px-4 py-3 font-semibold text-danger">
               Anulada{sale.voidedBy ? ` por ${sale.voidedBy}` : ""}{sale.voidReason ? `: ${sale.voidReason}` : ""}

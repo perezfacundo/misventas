@@ -104,6 +104,54 @@ const MIGRATIONS: string[] = [
   CREATE INDEX mp_charges_order ON mp_charges (lower(mp_order_id));
   CREATE INDEX mp_charges_tenant ON mp_charges (tenant_id, created_at);
   `,
+  `
+  CREATE TABLE arca_config (
+    tenant_id uuid PRIMARY KEY REFERENCES tenants(id),
+    cuit text NOT NULL,
+    razon_social text NOT NULL,
+    condicion text NOT NULL,
+    pto_vta bigint NOT NULL,
+    ambiente text NOT NULL,
+    domicilio text NOT NULL DEFAULT '',
+    iibb text NOT NULL DEFAULT '',
+    inicio_actividades text NOT NULL DEFAULT '',
+    key_enc text,
+    csr_pem text,
+    cert_pem text,
+    cert_expires_at timestamptz,
+    ta_token_enc text,
+    ta_sign_enc text,
+    ta_expires_at timestamptz,
+    ta_ambiente text,
+    updated_at timestamptz NOT NULL DEFAULT now()
+  );
+  CREATE TABLE arca_invoices (
+    id uuid PRIMARY KEY,
+    tenant_id uuid NOT NULL REFERENCES tenants(id),
+    sale_id text NOT NULL,
+    kind text NOT NULL,
+    status text NOT NULL,
+    ambiente text NOT NULL,
+    cbte_tipo bigint NOT NULL,
+    pto_vta bigint NOT NULL,
+    numero bigint,
+    fecha text,
+    cae text,
+    cae_vto text,
+    doc_tipo bigint NOT NULL,
+    doc_nro text NOT NULL,
+    condicion_iva_receptor bigint NOT NULL,
+    receiver_name text,
+    total bigint NOT NULL,
+    amounts jsonb NOT NULL,
+    messages jsonb NOT NULL,
+    associated_id uuid,
+    created_at timestamptz NOT NULL DEFAULT now(),
+    updated_at timestamptz NOT NULL DEFAULT now()
+  );
+  CREATE UNIQUE INDEX arca_invoices_sale_kind ON arca_invoices (tenant_id, sale_id, kind) WHERE status <> 'rechazada';
+  CREATE INDEX arca_invoices_series ON arca_invoices (tenant_id, pto_vta, cbte_tipo, numero);
+  `,
 ];
 
 async function migrate(db: Db): Promise<void> {

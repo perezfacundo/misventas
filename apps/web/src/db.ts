@@ -1,6 +1,7 @@
 import Dexie, { type EntityTable, type Transaction } from "dexie";
 import type {
-  AccountMovementType, Cart, CartLine, Cents, CashMovementType, Payment, PaymentMethod, Role, StockMovementType,
+  AccountMovementType, Cart, CartLine, Cents, CashMovementType, InvoiceAmounts, IssuerCondition, Payment, PaymentMethod, Role,
+  StockMovementType,
 } from "@misventas/core";
 import { uuidv7 } from "@misventas/core";
 
@@ -29,6 +30,8 @@ export interface Product extends SyncFields {
   /** false para productos sin control de stock (por ejemplo, cargas virtuales). */
   trackStock: boolean;
   favorite: boolean;
+  /** Alícuota de IVA (solo importa si el comercio es responsable inscripto). Sin dato: 21%. */
+  ivaRate?: number;
   active: boolean;
   createdAt: number;
   updatedAt: number;
@@ -182,6 +185,62 @@ export interface BusinessSettings extends SyncFields {
   /** Paso de redondeo por defecto al actualizar precios, en centavos. */
   priceRounding: Cents;
   enabledMethods: PaymentMethod[];
+  /** Factura electrónica: nunca, preguntar en cada venta, o siempre. Solo aplica con ARCA configurado. */
+  invoiceMode?: InvoiceMode;
+  /** Condición del comercio frente al IVA (la copia Ajustes al configurar ARCA): decide si se carga IVA por producto. */
+  fiscalCondition?: IssuerCondition | null;
+}
+
+export type InvoiceMode = "nunca" | "preguntar" | "siempre";
+
+/** Datos del comprador para la factura. */
+export interface InvoiceReceiver {
+  docTipo: number;
+  docNro: string;
+  condicion: number;
+  name?: string;
+}
+
+/** Comprobante tal como lo devuelve el servidor una vez procesado por ARCA. */
+export interface IssuedInvoice {
+  id: string;
+  saleId: string;
+  kind: "factura" | "nota_credito";
+  status: "pendiente" | "autorizada" | "rechazada";
+  ambiente: "homologacion" | "produccion";
+  cbteTipo: number;
+  ptoVta: number;
+  numero: number | null;
+  fecha: string | null;
+  cae: string | null;
+  caeVto: string | null;
+  receiver: InvoiceReceiver & { name: string | null };
+  total: Cents;
+  amounts: InvoiceAmounts;
+  issuer: { cuit: string; razonSocial: string; condicion: IssuerCondition; domicilio: string; iibb: string; inicioActividades: string };
+  messages: string[];
+  associatedId: string | null;
+  qrUrl: string | null;
+}
+
+/**
+ * Pedido de factura o nota de crédito. Se crea al vender (aunque no haya internet) y cualquier caja vinculada
+ * lo manda a ARCA cuando puede: el servidor no emite dos veces el mismo id.
+ */
+export interface InvoiceRecord extends SyncFields {
+  id: string;
+  saleId: string;
+  kind: "factura" | "nota_credito";
+  /** pendiente = todavía no se emitió; anulada = la venta se anuló antes de emitirla. */
+  status: "pendiente" | "autorizada" | "rechazada" | "anulada";
+  request: { lines: { gross: Cents; ivaRate?: number }[]; discount: Cents; receiver: InvoiceReceiver };
+  /** Para notas de crédito: la factura que anulan. */
+  associatedId?: string;
+  result?: IssuedInvoice;
+  /** Último error (para mostrar; si es por conexión, se reintenta solo). */
+  error?: string;
+  createdAt: number;
+  updatedAt: number;
 }
 
 /**
@@ -230,6 +289,7 @@ export const db = new Dexie("misventas") as Dexie & {
   accountMovements: EntityTable<AccountMovement, "id">;
   purchases: EntityTable<Purchase, "id">;
   business: EntityTable<BusinessSettings, "id">;
+  invoices: EntityTable<InvoiceRecord, "id">;
 };
 
 db.version(1).stores({
@@ -259,6 +319,10 @@ db.version(2)
     business: "id, _dirty",
   })
   .upgrade(migrateToV2);
+
+db.version(3).stores({
+  invoices: "id, saleId, status, kind, createdAt, _dirty",
+});
 
 /** Migración de la Fase 1: comercio compartido, usuarios, proveedores como entidad y dispositivo. */
 async function migrateToV2(tx: Transaction): Promise<void> {

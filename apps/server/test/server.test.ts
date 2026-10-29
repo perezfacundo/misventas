@@ -19,7 +19,7 @@ afterAll(async () => {
   await handle.close();
 });
 beforeEach(async () => {
-  await handle.db.execute(sql`TRUNCATE mp_charges, mp_accounts, entities, devices, accounts, tenants`);
+  await handle.db.execute(sql`TRUNCATE mp_charges, mp_accounts, entities, devices, accounts, tenants CASCADE`);
   app = await buildApp({ db: handle.db, rateLimit: false });
 });
 afterEach(async () => {

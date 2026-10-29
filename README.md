@@ -31,7 +31,14 @@ Corre en el navegador (PC, tablet o celular) y se instala como app (PWA) para us
 - **App de escritorio (Tauri):** la misma app, sin navegador. Imprime directo en la ticketera en ESC/POS (USB, del sistema o de red) y abre el cajón de dinero.
 - **Listo para producción con Docker:** PostgreSQL + Mis Ventas + Caddy con HTTPS automático.
 
-Lo que sigue (Fase 4: factura electrónica ARCA opcional; Fase 5: extras) está en el documento de planificación.
+**Fase 4 (factura electrónica ARCA, opcional por comercio):**
+- **Tipos de comprobante:** factura C (monotributo), y factura B o A (responsable inscripto) con IVA por alícuota en cada producto.
+- **Nota de crédito automática** al anular una venta facturada.
+- **Sin internet:** la venta no se traba. La factura queda pendiente y sale sola al volver la conexión.
+- **Ticket fiscal:** datos del emisor, comprador, CAE, vencimiento del CAE y QR (RG 4892). La B lleva la leyenda del Régimen de Transparencia Fiscal (Ley 27.743) y la A discrimina el IVA. Funciona en la ventana de impresión y en ESC/POS.
+- **Certificado:** la clave privada se genera y queda cifrada en el servidor. El dueño solo descarga el pedido (CSR) y sube el certificado que le da ARCA.
+
+Lo que sigue (Fase 5: extras) está en el documento de planificación.
 
 ## Estructura
 
@@ -109,6 +116,41 @@ docker compose exec db pg_dump -U misventas misventas | gzip > backup-$(date +%F
 **Seguridad:** el servidor nunca confía en el contenido del webhook (las notificaciones de QR no vienen firmadas). Lo usa solo como aviso y consulta el estado real de la orden con el token del comercio. Las órdenes usan el id del cobro como clave de idempotencia, así que reintentar no cobra dos veces.
 
 Los tests usan un Mercado Pago falso (`apps/server/test/fake-mercadopago.ts`) con los mismos endpoints. **Antes de cobrar de verdad, probá un cobro real chico con tu cuenta:** el circuito contra la API real no se puede verificar desde los tests.
+
+## Factura electrónica (ARCA)
+
+En **Ajustes → Factura electrónica (ARCA)**, paso a paso:
+
+1. **Datos fiscales:**
+   - CUIT, razón social, condición frente al IVA, punto de venta, domicilio, IIBB e inicio de actividades.
+   - Empezá en **homologación**: sus facturas no tienen validez fiscal.
+2. **Certificado:**
+   - Tocá "Generar pedido de certificado" y descargá el `.csr`.
+   - En ARCA, con clave fiscal:
+     - Homologación: servicio **WSASS – Autogestión Certificados Homologación**.
+     - Producción: **Administración de Certificados Digitales**.
+   - Creá el certificado con ese pedido y subí el `.crt`.
+3. **Autorizar:**
+   - En el **Administrador de Relaciones de Clave Fiscal**, asociá el servicio **Facturación Electrónica** (wsfe) al certificado. En homologación se hace desde WSASS.
+   - En producción, además, creá el punto de venta para **Web Services**.
+   - Tocá "Probar conexión con ARCA".
+4. **¿Cuándo facturar?:** nunca, preguntar en cada venta, o siempre.
+
+**Cómo funciona:**
+- **Servidor:** habla con WSAA (ticket de acceso de 12 h, que se reutiliza porque ARCA no da otro hasta que vence) y con WSFEv1. Los campos van en el orden exacto del WSDL oficial y siempre incluye `CondicionIVAReceptorId`, que es obligatoria.
+- **Cajas:** cada factura es un pedido con id propio que se guarda en la base local y se sincroniza. Cualquier caja vinculada lo manda cuando hay conexión.
+- **Emisión idempotente:** reintentar el mismo pedido nunca emite dos comprobantes.
+- **Numeración:** se serializa por punto de venta y tipo de comprobante. El número se guarda antes de llamar a ARCA: si la respuesta se pierde, el reintento consulta ese número (`FECompConsultar`) en lugar de emitir otro.
+- **Número tomado por fuera:** si se emitió un comprobante desde otro sistema y el número ya no es el próximo (error 10016), se pide el siguiente.
+
+**Límites a tener en cuenta:**
+- **Un solo proceso de servidor:** la serialización de la numeración supone una única instancia, como Render o un VPS. Con varias réplicas habría que pasarla a la base.
+- **Facturas de productos:** se emiten como concepto 1, sin tributos. Para un responsable inscripto que vende cigarrillos, los impuestos internos quedan en $0 en "Otros impuestos nacionales indirectos". **Consultá con un contador antes de usar producción.**
+- **Sin contingencia CAEA:** si ARCA está caído, la factura queda pendiente hasta que vuelva.
+- **Umbral de identificación del consumidor final:** está fijo en $10.000.000 (RG 5700/2025).
+- **Versión de prueba (`DEMO_MODE=1`):** solo se permite homologación.
+
+Los tests usan un ARCA falso (`apps/server/test/fake-arca.ts`) que valida numeración, sumas, campos obligatorios, el orden del WSDL y la firma CMS del pedido de acceso. **El circuito contra el ARCA real se prueba en homologación con tu CUIT:** desde acá no se puede.
 
 ## App de escritorio
 

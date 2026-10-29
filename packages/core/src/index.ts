@@ -10,3 +10,4 @@ export * from "./cash.ts";
 export * from "./permissions.ts";
 export * from "./account.ts";
 export * from "./sync.ts";
+export * from "./fiscal.ts";
